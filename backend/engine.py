@@ -606,8 +606,8 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             }
         })
 
-    # 8. Unsupported business metrics (subscribers, users, downloads)
-    unsupp_matches = list(re.finditer(r"(?:over|more than|supports|with|have)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts)\b", text, re.IGNORECASE))
+    # 8. Unsupported business & footprint metrics (subscribers, users, downloads, offices, locations, team)
+    unsupp_matches = list(re.finditer(r"(?:over|more than|supports?|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts|regional offices|offices|global offices|locations|branches|countries|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b", text, re.IGNORECASE))
     for m in unsupp_matches:
         findings.append({
             "id": f"PY-T2-UNSUPP-{m.start()}",

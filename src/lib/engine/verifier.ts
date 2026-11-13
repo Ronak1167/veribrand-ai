@@ -270,8 +270,8 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 8. General / Unsupported business metrics (e.g. "2,000 paying subscribers", "10,000 active users")
-  const unsupportedRegex = /(?:over|more than|supports|with|have)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts)\b/gi;
+  // 8. General / Unsupported business & footprint metrics (e.g. "2,000 paying subscribers", "17 regional offices", "50 global locations")
+  const unsupportedRegex = /(?:over|more than|supports?|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts|regional offices|offices|global offices|locations|branches|countries|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b/gi;
   while ((match = unsupportedRegex.exec(text)) !== null) {
     claims.push({
       text: match[0].trim(),

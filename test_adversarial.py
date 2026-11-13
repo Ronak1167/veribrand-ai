@@ -55,4 +55,11 @@ assert d5['complianceScore'] < 100, f"Expected <100, got {d5['complianceScore']}
 assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d5['findings']), "Expected UNVERIFIED for 2,000 paying subscribers"
 print("-> TEST 5 PASSED: Unsupported assertion '2,000 paying subscribers' caught with model abstention!")
 
-print("\nALL 5 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 6: Corporate Footprint Edge Case ("17 regional offices worldwide" must NOT pass as 100% compliant!)
+offices_text = "We have 17 regional offices worldwide."
+d6 = test_payload("TEST 6: CORPORATE FOOTPRINT ASSERTION ('17 regional offices')", offices_text)
+assert d6['complianceScore'] < 100, f"Expected <100, got {d6['complianceScore']}"
+assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d6['findings']), "Expected UNVERIFIED for 17 regional offices"
+print("-> TEST 6 PASSED: Corporate footprint assertion '17 regional offices' caught with model abstention!")
+
+print("\nALL 6 VERIFICATION TESTS PASSED CLEANLY!")
