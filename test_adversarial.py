@@ -62,31 +62,47 @@ assert d6['complianceScore'] < 100, f"Expected <100, got {d6['complianceScore']}
 assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d6['findings']), "Expected UNVERIFIED for footprint assertions"
 print("-> TEST 6 PASSED: Corporate footprint assertions ('17 regional offices', '50 global locations', '17 regions') caught with deterministic abstention!")
 
-# Test 7: Customer Count Growth Verification (421 within audited range is verified as >=420)
+# Test 7: Customer Count Lower-Bound Verification ("420+ enterprise customers", "at least 420 enterprise customer accounts")
+cust_420_text = "We have 420+ enterprise customers and serve at least 420 enterprise customer accounts."
+d7 = test_payload("TEST 7: CUSTOMER COUNT 420+ LOWER BOUND VERIFICATION", cust_420_text)
+assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d7['findings']), "Expected VERIFIED on 420+ customers"
+assert not any(f['verdict'] == 'CONFLICT' for f in d7['findings']), "False CONFLICT on 420+ customers"
+print("-> TEST 7 PASSED: 420+ and at least 420 enterprise customers verified under audited lower bound!")
+
+# Test 8: Exact Counts (421, 501, 600) vs Deficit (419) vs Exaggeration (1,500)
+# 8a: Exact count 421 lacks audit proof -> UNVERIFIED (not CONFLICT, but requires audit certification)
 cust_421_text = "We have 421 enterprise customers."
-d7 = test_payload("TEST 7: CUSTOMER COUNT 421 GROWTH LOWER BOUND", cust_421_text)
-assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d7['findings']), "Expected VERIFIED on 421 customers"
-assert not any(f['verdict'] == 'CONFLICT' for f in d7['findings']), "False CONFLICT on 421 customers"
-print("-> TEST 7 PASSED: 421 enterprise customers verified under 420+ lower bound!")
+d8a = test_payload("TEST 8a: EXACT CUSTOMER COUNT 421 (UNVERIFIED EXACT COUNT)", cust_421_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'exact customer count' in f['guidelineTitle'].lower() for f in d8a['findings']), "Expected UNVERIFIED for exact 421 count"
+assert not any(f['verdict'] == 'CONFLICT' for f in d8a['findings']), "False CONFLICT on exact 421 count"
 
-# Test 8: Organic Growth vs Exaggeration Customer Count Verification (501/600 verified; 419 deficit conflict; 1500 unverified)
-cust_501_text = "We have 501 enterprise customers."
-d8 = test_payload("TEST 8: CUSTOMER COUNT 501 GROWTH (>= 420+ LOWER BOUND)", cust_501_text)
-assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d8['findings']), "Expected VERIFIED on 501 customers"
-assert not any(f['verdict'] == 'CONFLICT' for f in d8['findings']), "False CONFLICT on 501 customers"
-
+# 8b: Exact count 600 lacks audit proof -> UNVERIFIED
 cust_600_text = "We have 600 enterprise customers."
-d8_600 = test_payload("TEST 8a: CUSTOMER COUNT 600 GROWTH (>= 420+ LOWER BOUND)", cust_600_text)
-assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d8_600['findings']), "Expected VERIFIED on 600 customers"
-assert not any(f['verdict'] == 'CONFLICT' for f in d8_600['findings']), "False CONFLICT on 600 customers"
+d8b = test_payload("TEST 8b: EXACT CUSTOMER COUNT 600 (UNVERIFIED EXACT COUNT)", cust_600_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'exact customer count' in f['guidelineTitle'].lower() for f in d8b['findings']), "Expected UNVERIFIED for exact 600 count"
+assert not any(f['verdict'] == 'CONFLICT' for f in d8b['findings']), "False CONFLICT on exact 600 count"
 
+# 8c: Deficit count 419 understates 420+ baseline -> CONFLICT
 cust_419_text = "We have 419 enterprise customers."
-d8b = test_payload("TEST 8b: CUSTOMER COUNT 419 DEFICIT (< 420 LOWER BOUND)", cust_419_text)
-assert any(f['verdict'] == 'CONFLICT' and 'customer' in f['guidelineTitle'].lower() for f in d8b['findings']), "Expected CONFLICT on 419 customers"
+d8c = test_payload("TEST 8c: DEFICIT CUSTOMER COUNT 419 (< 420 LOWER BOUND CONFLICT)", cust_419_text)
+assert any(f['verdict'] == 'CONFLICT' and 'customer count discrepancy' in f['guidelineTitle'].lower() for f in d8c['findings']), "Expected CONFLICT on 419 deficit"
 
+# 8d: Unverified higher count 1,500 -> UNVERIFIED
 cust_1500_text = "With over 1,500 enterprise customers across the globe."
-d8c = test_payload("TEST 8c: CUSTOMER COUNT 1,500 HIGHER COUNT (>= 1,000 UNVERIFIED)", cust_1500_text)
-assert any(f['verdict'] == 'UNVERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d8c['findings']), "Expected UNVERIFIED on 1,500 customers"
-print("-> TEST 8 PASSED: Customer count verified strictly as 420+ lower bound with organic growth (419 deficit CONFLICT, 501/600 VERIFIED, 1500 unverified higher count UNVERIFIED)!")
+d8d = test_payload("TEST 8d: HIGHER CUSTOMER COUNT 1,500 (>= 1,000 UNVERIFIED)", cust_1500_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'higher customer count' in f['guidelineTitle'].lower() for f in d8d['findings']), "Expected UNVERIFIED on 1,500 customers"
+print("-> TEST 8 PASSED: Customer count semantics strictly enforced (420+ VERIFIED, 421/600 exact UNVERIFIED, 419 deficit CONFLICT, 1,500 unverified higher count UNVERIFIED)!")
 
-print("\nALL 8 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 9: Turnaround Reduction Framing (Projected / Target Qualified vs Unqualified Outcome Assertion)
+# 9a: Qualified target -> VERIFIED
+turn_qualified = "Inkloom AI targets routine review turnaround reduction of up to 75%."
+d9a = test_payload("TEST 9a: QUALIFIED TURNAROUND REDUCTION TARGET", turn_qualified)
+assert any(f['verdict'] == 'VERIFIED' and 'turnaround' in f['guidelineTitle'].lower() for f in d9a['findings']), "Expected VERIFIED for qualified turnaround target"
+
+# 9b: Unqualified assertion -> UNVERIFIED
+turn_unqualified = "Inkloom AI delivers review turnaround reduction of up to 75% across all campaigns."
+d9b = test_payload("TEST 9b: UNQUALIFIED TURNAROUND OUTCOME ASSERTION", turn_unqualified)
+assert any(f['verdict'] == 'UNVERIFIED' and 'unqualified operational target' in f['guidelineTitle'].lower() for f in d9b['findings']), "Expected UNVERIFIED for unqualified turnaround claim"
+print("-> TEST 9 PASSED: Turnaround reduction phrasing & qualified target framing verified!")
+
+print("\nALL 9 VERIFICATION TESTS PASSED CLEANLY!")

@@ -198,8 +198,8 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 2. Customer counts (e.g. "over 1,500 enterprise customers", "100 enterprise customers", "420+ enterprise organizations")
-  const customerRegex = /(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)/gi;
+  // 2. Customer counts (e.g. "over 1,500 enterprise customers", "100 enterprise customers", "420+ enterprise organizations", "at least 420 enterprise customer accounts")
+  const customerRegex = /(?:over|more than|at least|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)/gi;
   while ((match = customerRegex.exec(text)) !== null) {
     const rawDigits = match[1].replace(/,/g, '');
     claims.push({
@@ -249,10 +249,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 6. Turnaround reduction claims (e.g. "turnaround by up to 75%", "75% turnaround")
-  const turnaroundRegex = /(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)/gi;
+  // 6. Turnaround reduction claims (e.g. "turnaround by up to 75%", "75% turnaround", "review turnaround reduction of up to 75%")
+  const turnaroundRegex = /(?:(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?\s+(?:by\s+|of\s+)?up\s+to\s+75%|up\s+to\s+75%\s+(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?)/gi;
   while ((match = turnaroundRegex.exec(text)) !== null) {
-    const preceding = text.slice(Math.max(0, match.index - 40), match.index).toLowerCase();
+    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
     const isTargetFraming = /\b(?:target|targets|targeting|projected|projecting|aims to|goal of|designed to)\b/i.test(preceding);
     claims.push({
       text: match[0],
@@ -393,10 +393,53 @@ function runTier2ClaimVerification(text: string): {
           rewrites: {
             direct: '420+ active enterprise customer accounts',
             punchy: 'trusted by 420+ enterprise customer accounts',
-            conservative: 'over 420 verified enterprise customer accounts',
+            conservative: 'over 420 active enterprise customer accounts',
           },
         });
-      } else if (count >= 1000) {
+      } else if (count === 420) {
+        // Certified lower bound baseline (420 or 420+)
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'VERIFIED',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'success',
+          explanation: `Validated against Q3 2026 Shareholder Disclosure (${metric.approvedValue} active accounts).`,
+          guidelineTitle: 'Active Enterprise Customer Metric',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'over 420 active enterprise customer accounts',
+          },
+        });
+      } else if (count < 1000) {
+        // Exact numbers like 421, 501, 600, 999: consistent with lower-bound but unverified as exact counts
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Exact customer count of ${count} lacks active audit verification. The certified ground truth establishes a lower bound of 420+ active enterprise customer accounts. Stating an exact count requires updated audit certification.`,
+          guidelineTitle: 'Unverified Exact Customer Count',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts (audited baseline)',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'over 420 active enterprise customer accounts',
+          },
+        });
+      } else {
         // Figures >= 1,000 exceed the audited 420+ scope without fresh quarterly filings -> UNVERIFIED (Missing Source)
         findings.push({
           id: `T2-CLAIM-${i}`,
@@ -414,27 +457,6 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts (audited baseline)',
-            punchy: 'trusted by 420+ enterprise customer accounts',
-            conservative: 'over 420 verified enterprise customer accounts',
-          },
-        });
-      } else {
-        // 420 to 999: Verified lower-bound / organic growth
-        findings.push({
-          id: `T2-CLAIM-${i}`,
-          category: 'claim_verification',
-          verdict: 'VERIFIED',
-          matchedText: claim.text,
-          startIndex: claim.startIndex,
-          endIndex: claim.endIndex,
-          severity: 'success',
-          explanation: `Validated against Q3 2026 Shareholder Disclosure (${metric.approvedValue}).`,
-          guidelineTitle: 'Active Enterprise Customer Metric',
-          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
-          authorityLevel: 2,
-          evidence: provenance,
-          rewrites: {
-            direct: '420+ active enterprise customer accounts',
             punchy: 'trusted by 420+ enterprise customer accounts',
             conservative: 'over 420 active enterprise customer accounts',
           },
@@ -778,9 +800,9 @@ function runTier2ClaimVerification(text: string): {
         guidelineCitation: 'Corporate Trademark Identity Handbook §4.2',
         authorityLevel: 2,
         rewrites: {
-          direct: '420+ global enterprise brands (audited customer count)',
-          punchy: 'trusted by 420+ industry leaders',
-          conservative: 'over 420 active enterprise customer deployments',
+          direct: '420+ active enterprise customer accounts',
+          punchy: 'trusted by 420+ enterprise customer accounts',
+          conservative: 'over 420 active enterprise customer accounts',
         },
       });
     }

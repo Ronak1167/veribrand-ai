@@ -47,8 +47,8 @@ SHARED_CORPUS = [
         "expected_score_max": 95
     },
     {
-        "name": "Corpus Draft 4: Customer Count Growth Lower Bound (421 Customers)",
-        "text": "We have 421 enterprise customers and 99.9% uptime.",
+        "name": "Corpus Draft 4: Customer Count Lower Bound (420+ Accounts)",
+        "text": "We have 420+ enterprise customers and 99.9% uptime.",
         "channel": "enterprise_web",
         "expected_score_min": 95,
         "expect_zero_conflicts": True
@@ -65,6 +65,20 @@ SHARED_CORPUS = [
         "text": "With over 1,500 enterprise customers across all global regions.",
         "channel": "enterprise_web",
         "expected_score_max": 90,
+        "expect_zero_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 7: Exact Customer Count (421 Customers Unverified Exact Count)",
+        "text": "We have 421 enterprise customers and 99.9% uptime.",
+        "channel": "enterprise_web",
+        "expected_score_max": 90,
+        "expect_zero_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 8: Turnaround Reduction Target Framing (Projected vs Outcome)",
+        "text": "Our platform targets routine review turnaround reduction of up to 75% while maintaining SOC 2 Type II standards.",
+        "channel": "press_release",
+        "expected_score_min": 95,
         "expect_zero_conflicts": True
     }
 ]

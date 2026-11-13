@@ -161,16 +161,17 @@ export const VERIFIED_METRICS: VerifiedMetric[] = [
   },
   {
     id: 'MTR-004',
-    metricName: 'Active Enterprise Customers',
+    metricName: 'Active Enterprise Customer Accounts',
     approvedValue: '420+',
     rawNumber: 420,
-    unit: 'brands',
+    unit: 'accounts',
     validFrom: '2026-10-01',
     validUntil: '2026-12-31',
     sourceDoc: 'Investor Q3 2026 Shareholder Disclosure',
     section: 'Key Performance Indicators (KPIs)',
     status: 'active',
-    toleranceNotes: 'Audited ground truth is "420+ active enterprise customer accounts". Organic growth between 420 and 999 is verified. Deficits under 420 understate audited accounts (CONFLICT), while unsubstantiated claims of 1,000+ trigger UNVERIFIED (lacks fresh quarterly shareholder filings).',
+    toleranceNotes:
+      'Audited ground truth is "420+ active enterprise customer accounts". Lower-bound verification accepts "420+" or "at least 420". Deficits under 420 understate audited accounts (CONFLICT), while exact numbers above 420 or unsubstantiated claims of 1,000+ trigger UNVERIFIED (lacks fresh quarterly shareholder filings).',
   },
   {
     id: 'MTR-005',

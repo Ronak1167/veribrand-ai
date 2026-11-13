@@ -40,14 +40,15 @@ VERIFIED_METRICS = {
         "status": "active"
     },
     "MTR-004": {
-        "name": "Active Enterprise Customers",
+        "name": "Active Enterprise Customer Accounts",
         "approved": "420+",
         "raw": 420,
+        "unit": "accounts",
         "source": "Investor Q3 2026 Shareholder Disclosure",
         "citation": "Key Performance Indicators (KPIs)",
         "validity": "Q3 2026 Disclosure",
         "status": "active",
-        "tolerance": "Audited ground truth is '420+ active enterprise customer accounts'. Organic growth between 420 and 999 is verified. Under 420 is deficit (CONFLICT), and 1,000+ is unverified (UNVERIFIED) lacking quarterly shareholder filings."
+        "tolerance": "Audited ground truth is '420+ active enterprise customer accounts'. Lower-bound verification accepts '420+' or 'at least 420'. Deficits under 420 understate audited accounts (CONFLICT), while exact numbers above 420 or unsubstantiated claims of 1,000+ trigger UNVERIFIED lacking quarterly shareholder filings."
     },
     "MTR-005": {
         "name": "Review Turnaround Reduction",
@@ -394,8 +395,8 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; organic growth 420-999 verified; <420 is CONFLICT, >=1000 is UNVERIFIED)
-    cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)", text, re.IGNORECASE))
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; lower-bound 420+ verified; <420 is CONFLICT, exact 421-999 or >=1000 is UNVERIFIED)
+    cust_matches = list(re.finditer(r"(?:over|more than|at least|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
@@ -425,10 +426,67 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
                     "punchy": "trusted by 420+ enterprise customer accounts",
-                    "conservative": "over 420 verified enterprise customer accounts"
+                    "conservative": "over 420 active enterprise customer accounts"
                 }
             })
-        elif claimed_num >= 1000:
+        elif claimed_num == 420:
+            findings.append({
+                "id": f"PY-T2-CUST-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "VERIFIED",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "success",
+                "explanation": f"Validated against Q3 2026 Shareholder Disclosure ({metric['approved']} active accounts).",
+                "guideline_title": "Active Enterprise Customer Metric",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "over 420 active enterprise customer accounts"
+                }
+            })
+        elif claimed_num < 1000:
+            findings.append({
+                "id": f"PY-T2-CUST-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Exact customer count of {claimed_num} lacks active audit verification. The certified ground truth establishes a lower bound of 420+ active enterprise customer accounts. Stating an exact count requires updated audit certification.",
+                "guideline_title": "Unverified Exact Customer Count",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts (audited baseline)",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "over 420 active enterprise customer accounts"
+                }
+            })
+        else:
             findings.append({
                 "id": f"PY-T2-CUST-UNV-{m.start()}",
                 "category": "claim_verification",
@@ -453,34 +511,6 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts (audited baseline)",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
-                    "conservative": "over 420 verified enterprise customer accounts"
-                }
-            })
-        else:
-            findings.append({
-                "id": f"PY-T2-CUST-{m.start()}",
-                "category": "claim_verification",
-                "verdict": "VERIFIED",
-                "matched_text": m.group(0).strip(),
-                "start_index": m.start(),
-                "end_index": m.end(),
-                "severity": "success",
-                "explanation": f"Validated against Q3 2026 Shareholder Disclosure ({metric['approved']}).",
-                "guideline_title": "Active Enterprise Customer Metric",
-                "guideline_citation": f"{metric['source']} — {metric['citation']}",
-                "authority_level": 2,
-                "evidence": {
-                    "metric_id": "MTR-004",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
-                "rewrites": {
-                    "direct": "420+ active enterprise customer accounts",
                     "punchy": "trusted by 420+ enterprise customer accounts",
                     "conservative": "over 420 active enterprise customer accounts"
                 }
@@ -756,11 +786,11 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             }
         })
 
-    # 7. Turnaround reduction (75% projected target)
-    turn_matches = list(re.finditer(r"(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)", text, re.IGNORECASE))
+    # 7. Turnaround reduction (75% projected target, e.g. "turnaround by up to 75%", "review turnaround reduction of up to 75%")
+    turn_matches = list(re.finditer(r"(?:(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?\s+(?:by\s+|of\s+)?up\s+to\s+75%|up\s+to\s+75%\s+(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?)", text, re.IGNORECASE))
     for m in turn_matches:
         metric = VERIFIED_METRICS["MTR-005"]
-        preceding = text[max(0, m.start() - 40):m.start()].lower()
+        preceding = text[max(0, m.start() - 50):m.start()].lower()
         is_target_framing = bool(re.search(r"\b(?:target|targets|targeting|projected|projecting|aims to|goal of|designed to)\b", preceding, re.IGNORECASE))
         if is_target_framing:
             findings.append({
@@ -843,8 +873,8 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "guideline_citation": "Corporate Trademark Identity Handbook §4.2",
             "authority_level": 2,
             "rewrites": {
-                "direct": "420+ global enterprise brands (audited customer count)",
-                "punchy": "trusted by 420+ industry leaders",
+                "direct": "420+ active enterprise customer accounts",
+                "punchy": "trusted by 420+ enterprise customer accounts",
                 "conservative": "over 420 active enterprise customer accounts"
             }
         })
