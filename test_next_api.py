@@ -3,7 +3,7 @@ import json
 
 url = 'http://localhost:3000/api/audit'
 payload = json.dumps({
-    'text': 'Welcome to inkloom! We guarantee 99.999% uptime and $50M in annual revenue with legacy price $49/mo.',
+    'text': 'Welcome to inkloom! We guarantee 99.999% uptime and $50M in ARR with legacy price $49/mo.',
     'channel': 'enterprise_web'
 }).encode('utf-8')
 

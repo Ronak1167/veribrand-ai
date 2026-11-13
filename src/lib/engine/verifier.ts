@@ -176,8 +176,9 @@ interface ExtractedClaim {
   text: string;
   startIndex: number;
   endIndex: number;
-  claimType: 'uptime' | 'customers' | 'revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric';
+  claimType: 'uptime' | 'customers' | 'revenue' | 'arr' | 'annual_revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric';
   rawNumber?: number;
+  isTargetFraming?: boolean;
 }
 
 function extractClaimsFromText(text: string): ExtractedClaim[] {
@@ -198,7 +199,7 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   }
 
   // 2. Customer counts (e.g. "over 1,500 enterprise customers", "100 enterprise customers", "420+ enterprise organizations")
-  const customerRegex = /(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)/gi;
+  const customerRegex = /(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)/gi;
   while ((match = customerRegex.exec(text)) !== null) {
     const rawDigits = match[1].replace(/,/g, '');
     claims.push({
@@ -210,14 +211,16 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 3. Revenue / ARR claims (e.g. "$50M in annual revenue", "$18.5M ARR")
-  const revenueRegex = /\$([0-9.]+)\s*(?:M|million)\s*(?:in annual revenue|ARR|revenue)?/gi;
+  // 3. Revenue / ARR claims (distinguish ARR from total annual revenue)
+  const revenueRegex = /\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue)?/gi;
   while ((match = revenueRegex.exec(text)) !== null) {
+    const rawUnit = (match[2] || '').toLowerCase();
+    const isARR = rawUnit.includes('arr') || rawUnit.includes('recurring');
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
-      claimType: 'revenue',
+      claimType: isARR ? 'arr' : 'annual_revenue',
       rawNumber: parseFloat(match[1]),
     });
   }
@@ -249,12 +252,15 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   // 6. Turnaround reduction claims (e.g. "turnaround by up to 75%", "75% turnaround")
   const turnaroundRegex = /(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)/gi;
   while ((match = turnaroundRegex.exec(text)) !== null) {
+    const preceding = text.slice(Math.max(0, match.index - 40), match.index).toLowerCase();
+    const isTargetFraming = /\b(?:target|targets|targeting|projected|projecting|aims to|goal of|designed to)\b/i.test(preceding);
     claims.push({
       text: match[0],
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'turnaround',
       rawNumber: 75,
+      isTargetFraming,
     });
   }
 
@@ -355,11 +361,7 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      // Ground truth is "420+ active enterprise customer accounts"
-      // Organic growth between 420 and 999 is verified as legitimate lower-bound growth.
-      // Deficits (<420) or unverified exaggerations (>=1000, e.g. 1,500) trigger CONFLICT.
       const count = claim.rawNumber || 0;
-      const isAccurate = count >= 420 && count < 1000;
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,
@@ -372,7 +374,52 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (isAccurate) {
+      if (count < 420) {
+        // True Deficit Contradiction (< 420 understates the audited 420+ baseline)
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Deficit Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure certifies at least ${metric.approvedValue} active accounts. Understating audited customer accounts violates regulatory reporting guidelines.`,
+          guidelineTitle: 'Customer Count Discrepancy',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'over 420 verified enterprise customer accounts',
+          },
+        });
+      } else if (count >= 1000) {
+        // Figures >= 1,000 exceed the audited 420+ scope without fresh quarterly filings -> UNVERIFIED (Missing Source)
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unverified Higher Customer Count. Draft asserts "${claim.text}", but official shareholder disclosure certifies ${metric.approvedValue} active accounts. Customer counts of 1,000+ lack active audit verification and require updated quarterly shareholder filings before publication.`,
+          guidelineTitle: 'Unverified Higher Customer Count',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts (audited baseline)',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'over 420 verified enterprise customer accounts',
+          },
+        });
+      } else {
+        // 420 to 999: Verified lower-bound / organic growth
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -387,37 +434,13 @@ function runTier2ClaimVerification(text: string): {
           authorityLevel: 2,
           evidence: provenance,
           rewrites: {
-            direct: '420+ global enterprise brands',
-            punchy: 'trusted by 420+ industry leaders',
-            conservative: 'over 420 active enterprise customer deployments',
-          },
-        });
-      } else {
-        const isExaggeration = count >= 1000;
-        findings.push({
-          id: `T2-CLAIM-${i}`,
-          category: 'claim_verification',
-          verdict: 'CONFLICT',
-          reasonCode: 'NUMERICAL_MISMATCH',
-          matchedText: claim.text,
-          startIndex: claim.startIndex,
-          endIndex: claim.endIndex,
-          severity: 'critical',
-          explanation: isExaggeration
-            ? `Exaggerated Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure certifies ${metric.approvedValue} active accounts. Citing 1,000+ or 1,500+ represents a material exaggeration without official shareholder audit filings.`
-            : `Deficit Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure verifies at least ${metric.approvedValue} active accounts. Understating audited customer accounts violates regulatory reporting guidelines.`,
-          guidelineTitle: 'Customer Count Discrepancy',
-          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
-          authorityLevel: 1,
-          evidence: provenance,
-          rewrites: {
-            direct: '420+ global enterprise brands',
-            punchy: '420+ market-leading enterprises',
-            conservative: 'over 420 verified enterprise accounts',
+            direct: '420+ active enterprise customer accounts',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'over 420 active enterprise customer accounts',
           },
         });
       }
-    } else if (claim.claimType === 'revenue') {
+    } else if (claim.claimType === 'arr') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-006')!;
       const isExactMatch = claim.rawNumber === metric.rawNumber;
 
@@ -442,7 +465,7 @@ function runTier2ClaimVerification(text: string): {
           endIndex: claim.endIndex,
           severity: 'success',
           explanation: `Audited financial statement verified ($18.5M ARR).`,
-          guidelineTitle: 'Audited Revenue Metric',
+          guidelineTitle: 'Audited ARR Metric',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,
           evidence: provenance,
@@ -462,18 +485,51 @@ function runTier2ClaimVerification(text: string): {
           startIndex: claim.startIndex,
           endIndex: claim.endIndex,
           severity: 'critical',
-          explanation: `Severe Financial Conflict. Draft quotes "${claim.text}", but Deloitte FY25 audited revenue is strictly ${metric.approvedValue}. Misrepresenting revenue violates SEC/regulatory mandates.`,
-          guidelineTitle: 'False Financial Disclosure',
+          explanation: `False ARR Financial Disclosure. Draft asserts "${claim.text}", but Deloitte FY25 audited financial statement certifies ${metric.approvedValue} Annual Recurring Revenue (ARR). Citing unverified ARR violates securities disclosure standards.`,
+          guidelineTitle: 'False ARR Financial Disclosure',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,
           evidence: provenance,
           rewrites: {
-            direct: '$18.5M in annual recurring revenue',
-            punchy: '$18.5M ARR',
-            conservative: '$18.5M ARR as audited in our FY25 financial statements',
+            direct: '$18.5M ARR',
+            punchy: '$18.5M in audited annual recurring revenue',
+            conservative: '$18.5M ARR (FY25 Deloitte audit)',
           },
         });
       }
+    } else if (claim.claimType === 'annual_revenue') {
+      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-006')!;
+      const provenance: EvidenceProvenance = {
+        metricId: metric.id,
+        metricName: metric.metricName,
+        approvedValue: metric.approvedValue,
+        sourceDocument: metric.sourceDoc,
+        sectionCitation: metric.section,
+        validityPeriod: 'FY25-Q4 Audited',
+        lastAuditedDate: '2026-09-30',
+        status: 'active',
+      };
+      // Annual / total revenue is not certified in Brand Vault (only ARR is audited)
+      findings.push({
+        id: `T2-CLAIM-${i}`,
+        category: 'claim_verification',
+        verdict: 'UNVERIFIED',
+        reasonCode: 'MISSING_SOURCE',
+        matchedText: claim.text,
+        startIndex: claim.startIndex,
+        endIndex: claim.endIndex,
+        severity: 'warning',
+        explanation: `Unverified Financial Metric. Draft asserts "${claim.text}", but Deloitte FY25 audited statements certify $18.5M Annual Recurring Revenue (ARR), not total annual revenue. Total annual revenue has not been disclosed in audited brand disclosures.`,
+        guidelineTitle: 'Unverified Annual Revenue Metric',
+        guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+        authorityLevel: 2,
+        evidence: provenance,
+        rewrites: {
+          direct: '$18.5M Annual Recurring Revenue (ARR)',
+          punchy: '$18.5M ARR',
+          conservative: '$18.5M in audited ARR (Deloitte FY25)',
+        },
+      });
     } else if (claim.claimType === 'pricing') {
       const price = claim.rawNumber || 0;
       const metricOutdated = VERIFIED_METRICS.find((m) => m.id === 'MTR-007')!;
@@ -583,34 +639,59 @@ function runTier2ClaimVerification(text: string): {
       });
     } else if (claim.claimType === 'turnaround') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-005')!;
-      findings.push({
-        id: `T2-CLAIM-${i}`,
-        category: 'claim_verification',
-        verdict: 'VERIFIED',
-        matchedText: claim.text,
-        startIndex: claim.startIndex,
-        endIndex: claim.endIndex,
-        severity: 'success',
-        explanation: `Verified against official projected operational benchmarks (${metric.approvedValue}).`,
-        guidelineTitle: 'Review Turnaround Target',
-        guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
-        authorityLevel: 2,
-        evidence: {
-          metricId: metric.id,
-          metricName: metric.metricName,
-          approvedValue: metric.approvedValue,
-          sourceDocument: metric.sourceDoc,
-          sectionCitation: metric.section,
-          validityPeriod: 'Round 2 Operational Plan',
-          lastAuditedDate: '2026-11-01',
-          status: 'active',
-        },
-        rewrites: {
-          direct: 'turnaround reduction by up to 75%',
-          punchy: 'slashing routine reviews by up to 75%',
-          conservative: 'projected review turnaround reduction of up to 75%',
-        },
-      });
+      const provenance: EvidenceProvenance = {
+        metricId: metric.id,
+        metricName: metric.metricName,
+        approvedValue: metric.approvedValue,
+        sourceDocument: metric.sourceDoc,
+        sectionCitation: metric.section,
+        validityPeriod: 'Round 2 Operational Plan',
+        lastAuditedDate: '2026-11-01',
+        status: 'active',
+      };
+
+      if (claim.isTargetFraming) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'VERIFIED',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'success',
+          explanation: `Verified Projected Target. Framed accurately as an engineering target benchmark (${metric.approvedValue}) per Round 2 Operational Plan.`,
+          guidelineTitle: 'Review Turnaround Target',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: 'targets routine review turnaround reduction of up to 75%',
+            punchy: 'projected up to 75% turnaround acceleration',
+            conservative: 'projected turnaround reduction of up to 75%',
+          },
+        });
+      } else {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unqualified Operational Target. Draft asserts "${claim.text}" as an established operational outcome. Per MTR-005 tolerance guidelines, the 75% turnaround reduction is an internal projected engineering target, not an empirically certified historical outcome, and must be qualified with "projected" or "target".`,
+          guidelineTitle: 'Unqualified Operational Target',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: 'targets routine review turnaround reduction of up to 75%',
+            punchy: 'projected up to 75% turnaround acceleration',
+            conservative: 'projected turnaround reduction of up to 75%',
+          },
+        });
+      }
     } else if (claim.claimType === 'security') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
 

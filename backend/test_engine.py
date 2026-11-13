@@ -12,7 +12,7 @@ SAMPLE_BROKEN = (
 SAMPLE_COMPLIANT = (
     "Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing "
     "without sacrificing brand integrity. Backed by SOC 2 Type II security standards and an industry-verified "
-    "94.2% enterprise retention rate, our explainable compliance co-pilot accelerates routine review turnaround by up to 75%."
+    "94.2% enterprise retention rate, our explainable compliance co-pilot targets accelerating routine review turnaround by up to 75%."
 )
 
 def run_tests():
@@ -30,9 +30,14 @@ def run_tests():
     print(f"  Conflicts: {res1['claims_conflicted_count']}")
     print(f"  Unverified: {res1['claims_unverified_count']}")
 
-    assert res1['claims_conflicted_count'] >= 3, "Expected at least 3 conflicts (uptime, customers, revenue)"
-    assert res1['claims_unverified_count'] >= 1, "Expected at least 1 outdated unverified price"
-    print("  -> TEST 1 PASSED: Correctly caught all conflicts and outdated claims.")
+    assert res1['claims_conflicted_count'] >= 1, "Expected SLA uptime conflict"
+    assert res1['claims_unverified_count'] >= 3, "Expected unverified claims (higher customers, unverified annual revenue, outdated pricing)"
+    print("  -> TEST 1 PASSED: Correctly caught conflicts and unverified claims.")
+
+    # Test 1b: Deficit Customer Count (<420) & False ARR Contradiction
+    res_def = audit_document("We support 100 enterprise customers and $50M in ARR.")
+    assert res_def['claims_conflicted_count'] == 2, "Expected 2 conflicts (deficit customers and false ARR)"
+    print("  -> TEST 1b PASSED: Deficit customer count (100 < 420) and false ARR ($50M != $18.5M) correctly flagged as CONFLICT.")
 
     # Test 2: Compliant Copy
     res2 = audit_document(SAMPLE_COMPLIANT)
@@ -41,6 +46,7 @@ def run_tests():
     print(f"  Verified Claims: {res2['claims_verified_count']}")
     print(f"  Conflicts: {res2['claims_conflicted_count']}")
     assert res2['claims_conflicted_count'] == 0, "Expected zero conflicts on compliant draft"
+    assert res2['compliance_score'] == 100, "Expected 100/100 score on compliant draft"
     print("  -> TEST 2 PASSED: 100% compliant draft validated.")
 
     # Test 3: WCAG Contrast

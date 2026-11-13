@@ -170,7 +170,7 @@ export const VERIFIED_METRICS: VerifiedMetric[] = [
     sourceDoc: 'Investor Q3 2026 Shareholder Disclosure',
     section: 'Key Performance Indicators (KPIs)',
     status: 'active',
-    toleranceNotes: 'Audited ground truth is "420+ global enterprise brands". Organic growth between 420 and 999 is verified. Deficits under 420 understate audited accounts (CONFLICT), while unsubstantiated claims of 1,000+ or 1,500+ represent material exaggerations without fresh shareholder audit filings (CONFLICT).',
+    toleranceNotes: 'Audited ground truth is "420+ active enterprise customer accounts". Organic growth between 420 and 999 is verified. Deficits under 420 understate audited accounts (CONFLICT), while unsubstantiated claims of 1,000+ trigger UNVERIFIED (lacks fresh quarterly shareholder filings).',
   },
   {
     id: 'MTR-005',
@@ -183,7 +183,7 @@ export const VERIFIED_METRICS: VerifiedMetric[] = [
     sourceDoc: 'VeriBrand AI Operational Benchmark & Hackathon Plan',
     section: '§9 Projected Operational Targets',
     status: 'active',
-    toleranceNotes: 'Must be framed as a projected engineering target ("up to 75%"), subject to empirical validation.',
+    toleranceNotes: 'Must be framed as a projected engineering target ("projected up to 75%" or "targets up to 75%"), subject to empirical validation. Unqualified factual claims trigger UNVERIFIED.',
   },
   {
     id: 'MTR-006',
@@ -196,7 +196,7 @@ export const VERIFIED_METRICS: VerifiedMetric[] = [
     sourceDoc: 'Deloitte FY25 Audited Financial Statement',
     section: 'Financial Highlights p. 8',
     status: 'active',
-    toleranceNotes: 'Audited ARR is $18.5M. Unaudited claims ($50M or $100M) trigger direct CONFLICT.',
+    toleranceNotes: 'Audited Annual Recurring Revenue (ARR) is $18.5M. Unaudited ARR claims trigger direct CONFLICT. General annual revenue claims trigger UNVERIFIED as total revenue is not certified in audited disclosures.',
   },
   {
     id: 'MTR-007',
@@ -239,10 +239,10 @@ export interface PresetDraft {
 export const PRESET_DRAFTS: PresetDraft[] = [
   {
     id: 'draft-broken-marketing',
-    name: 'Scenario 1: High-Risk Broken Copy (6 Violations)',
-    badge: 'High Risk • 6 Violations',
+    name: 'Scenario 1: High-Risk Broken Copy (Multiple Violations)',
+    badge: 'High Risk • Multiple Violations',
     badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
-    description: 'Contains trademark casing flaws, unapproved superlatives, 3 claim conflicts, an outdated price, and rogue hex code.',
+    description: 'Contains trademark casing flaws, unapproved superlatives, SLA conflict, unverified customer counts and revenue, outdated pricing, and rogue hex code.',
     channel: 'linkedin',
     content: `Welcome to inkloom! We are the world's most revolutionary brand governance platform, guaranteeing 99.999% uptime and zero risk for all users. With over 1,500 enterprise customers and $50M in annual revenue, our artificial intelligence wizard automatically replaces all human editors. You can still lock in our legacy pricing at just $49/mo today! For our header graphics, apply background color #ff0033.`,
   },
@@ -262,7 +262,7 @@ export const PRESET_DRAFTS: PresetDraft[] = [
     badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
     description: 'Fully compliant draft with verified metrics, correct trademark capitalization, and approved tone.',
     channel: 'press_release',
-    content: `Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an industry-verified 94.2% enterprise client retention rate, our explainable compliance co-pilot accelerates routine review turnaround by up to 75%.`,
+    content: `Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an industry-verified 94.2% enterprise client retention rate, our explainable compliance co-pilot targets accelerating routine review turnaround by up to 75%.`,
   },
 ];
 

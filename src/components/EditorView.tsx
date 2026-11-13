@@ -226,7 +226,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <div className="flex items-center space-x-2">
               <Clock className="w-3.5 h-3.5 text-cyan-400" />
               <div>
-                <p className="text-[10px] text-slate-400 font-medium">Tier-2 Grounded RAG</p>
+                <p className="text-[10px] text-slate-400 font-medium">Tier-2 Structured Claim Verifier</p>
                 <p className="font-bold text-slate-200" suppressHydrationWarning>
                   {auditResult.tier2LatencyMs} ms <span className="text-[10px] text-cyan-400 font-normal">(Tri-State Claim)</span>
                 </p>
@@ -240,7 +240,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <Sparkles className="w-3 h-3 text-cyan-400" /> The Three Named Improvements (Rubric Core)
             </span>
             <ul className="text-slate-300 space-y-1 list-disc list-inside">
-              <li><strong className="text-slate-200">1. Evidence-Backed Tri-State Engine:</strong> Programmatic source provenance & model abstention.</li>
+              <li><strong className="text-slate-200">1. Evidence-Backed Tri-State Engine:</strong> Grounded Brand Vault evidence references & deterministic abstention for recognized unsupported assertion patterns.</li>
               <li><strong className="text-slate-200">2. Intent-Preserving Corrections:</strong> 3 tone-matched rewrites with 1-click apply.</li>
               <li><strong className="text-slate-200">3. Reverse Brand Intelligence:</strong> Guideline Ambiguity Heatmap diagnostics.</li>
             </ul>

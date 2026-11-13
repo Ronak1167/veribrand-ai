@@ -47,7 +47,7 @@ VERIFIED_METRICS = {
         "citation": "Key Performance Indicators (KPIs)",
         "validity": "Q3 2026 Disclosure",
         "status": "active",
-        "tolerance": "Audited ground truth is 420+. Organic growth between 420 and 999 is verified. Under 420 is deficit (CONFLICT), and 1,000+ is unverified exaggeration (CONFLICT)."
+        "tolerance": "Audited ground truth is '420+ active enterprise customer accounts'. Organic growth between 420 and 999 is verified. Under 420 is deficit (CONFLICT), and 1,000+ is unverified (UNVERIFIED) lacking quarterly shareholder filings."
     },
     "MTR-005": {
         "name": "Review Turnaround Reduction",
@@ -56,7 +56,8 @@ VERIFIED_METRICS = {
         "source": "VeriBrand Operational Benchmark Plan",
         "citation": "§9 Operational Targets",
         "validity": "Projected Target (Empirical Validation)",
-        "status": "active"
+        "status": "active",
+        "tolerance": "Must be framed as a projected engineering target ('projected up to 75%' or 'targets up to 75%'), subject to empirical validation. Unqualified factual claims trigger UNVERIFIED."
     },
     "MTR-006": {
         "name": "Annual Recurring Revenue (ARR)",
@@ -65,7 +66,8 @@ VERIFIED_METRICS = {
         "source": "Deloitte FY25 Audited Financial Statement",
         "citation": "Financial Highlights p. 8",
         "validity": "FY25-Q4 Audited",
-        "status": "active"
+        "status": "active",
+        "tolerance": "Audited Annual Recurring Revenue (ARR) is $18.5M. Unaudited ARR claims trigger direct CONFLICT. General annual revenue claims trigger UNVERIFIED as total revenue is not certified in audited disclosures."
     },
     "MTR-007": {
         "name": "Legacy Pricing Tier",
@@ -392,13 +394,70 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; organic growth 420-999 verified; <420 or >=1000 is CONFLICT)
-    cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; organic growth 420-999 verified; <420 is CONFLICT, >=1000 is UNVERIFIED)
+    cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        is_accurate = (claimed_num >= 420 and claimed_num < 1000)
-        if is_accurate:
+        if claimed_num < 420:
+            findings.append({
+                "id": f"PY-T2-CUST-CONF-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"Deficit Customer Count. Draft asserts '{m.group(0).strip()}', but audited shareholder disclosure certifies at least {metric['approved']} active accounts. Understating audited customer accounts violates regulatory reporting guidelines.",
+                "guideline_title": "Customer Count Discrepancy",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "over 420 verified enterprise customer accounts"
+                }
+            })
+        elif claimed_num >= 1000:
+            findings.append({
+                "id": f"PY-T2-CUST-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unverified Higher Customer Count. Draft asserts '{m.group(0).strip()}', but official shareholder disclosure certifies {metric['approved']} active accounts. Customer counts of 1,000+ lack active audit verification and require updated quarterly shareholder filings before publication.",
+                "guideline_title": "Unverified Higher Customer Count",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts (audited baseline)",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "over 420 verified enterprise customer accounts"
+                }
+            })
+        else:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",
                 "category": "claim_verification",
@@ -421,88 +480,92 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "status": "active"
                 },
                 "rewrites": {
-                    "direct": "420+ global enterprise brands",
-                    "punchy": "trusted by 420+ industry leaders",
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
                     "conservative": "over 420 active enterprise customer accounts"
                 }
             })
-        else:
-            findings.append({
-                "id": f"PY-T2-CUST-CONF-{m.start()}",
-                "category": "claim_verification",
-                "verdict": "CONFLICT",
-                "reason_code": "NUMERICAL_MISMATCH",
-                "matched_text": m.group(0).strip(),
-                "start_index": m.start(),
-                "end_index": m.end(),
-                "severity": "critical",
-                "explanation": f"Discrepancy in customer count. Quoting '{m.group(0).strip()}' contradicts audited disclosure ({metric['approved']}).",
-                "guideline_title": "Customer Count Discrepancy",
-                "guideline_citation": f"{metric['source']} — {metric['citation']}",
-                "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-004",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
-                "rewrites": {
-                    "direct": "420+ global enterprise brands",
-                    "punchy": "420+ market-leading enterprises",
-                    "conservative": "over 420 verified enterprise accounts"
-                }
-            })
 
-    # 3. Revenue / ARR
-    rev_matches = list(re.finditer(r"\$([0-9.]+)\s*(?:M|million)\s*(?:in annual revenue|ARR|revenue)?", text, re.IGNORECASE))
+    # 3. Revenue / ARR (distinguish ARR from total annual revenue)
+    rev_matches = list(re.finditer(r"\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue)?", text, re.IGNORECASE))
     for m in rev_matches:
         claimed_num = float(m.group(1))
+        unit_str = (m.group(2) or '').lower()
+        is_arr = 'arr' in unit_str or 'recurring' in unit_str
         metric = VERIFIED_METRICS["MTR-006"]
-        if claimed_num == metric["raw"]:
-            findings.append({
-                "id": f"PY-T2-REV-{m.start()}",
-                "category": "claim_verification",
-                "verdict": "VERIFIED",
-                "matched_text": m.group(0).strip(),
-                "start_index": m.start(),
-                "end_index": m.end(),
-                "severity": "success",
-                "explanation": f"Audited financial statement verified ($18.5M ARR).",
-                "guideline_title": "Audited Revenue Metric",
-                "guideline_citation": f"{metric['source']} — {metric['citation']}",
-                "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-006",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
-                "rewrites": {
-                    "direct": "$18.5M ARR",
-                    "punchy": "$18.5M in audited ARR",
-                    "conservative": "$18.5M ARR (FY25 audited disclosure)"
-                }
-            })
+        if is_arr:
+            if claimed_num == metric["raw"]:
+                findings.append({
+                    "id": f"PY-T2-REV-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "VERIFIED",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "success",
+                    "explanation": f"Audited financial statement verified ($18.5M ARR).",
+                    "guideline_title": "Audited ARR Metric",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": {
+                        "metric_id": "MTR-006",
+                        "metric_name": metric["name"],
+                        "approved_value": metric["approved"],
+                        "source_document": metric["source"],
+                        "section_citation": metric["citation"],
+                        "validity_period": metric["validity"],
+                        "status": "active"
+                    },
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 audited disclosure)"
+                    }
+                })
+            else:
+                findings.append({
+                    "id": f"PY-T2-REV-CONF-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "CONFLICT",
+                    "reason_code": "NUMERICAL_MISMATCH",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "critical",
+                    "explanation": f"False ARR Financial Disclosure. Draft asserts '{m.group(0).strip()}', but Deloitte FY25 audited financial statement certifies {metric['approved']} Annual Recurring Revenue (ARR). Citing unverified ARR violates securities disclosure standards.",
+                    "guideline_title": "False ARR Financial Disclosure",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": {
+                        "metric_id": "MTR-006",
+                        "metric_name": metric["name"],
+                        "approved_value": metric["approved"],
+                        "source_document": metric["source"],
+                        "section_citation": metric["citation"],
+                        "validity_period": metric["validity"],
+                        "status": "active"
+                    },
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 Deloitte audit)"
+                    }
+                })
         else:
+            # General annual revenue is unverified (only ARR is certified in Brand Vault)
             findings.append({
-                "id": f"PY-T2-REV-CONF-{m.start()}",
+                "id": f"PY-T2-REV-UNV-{m.start()}",
                 "category": "claim_verification",
-                "verdict": "CONFLICT",
-                "reason_code": "NUMERICAL_MISMATCH",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
                 "matched_text": m.group(0).strip(),
                 "start_index": m.start(),
                 "end_index": m.end(),
-                "severity": "critical",
-                "explanation": f"Financial Misrepresentation. Quoting '{m.group(0).strip()}' contradicts audited financial disclosures ({metric['approved']}).",
-                "guideline_title": "False Financial Disclosure",
+                "severity": "warning",
+                "explanation": f"Unverified Financial Metric. Draft asserts '{m.group(0).strip()}', but Deloitte FY25 audited statements certify $18.5M Annual Recurring Revenue (ARR), not total annual revenue. Total annual revenue has not been disclosed in audited brand disclosures.",
+                "guideline_title": "Unverified Annual Revenue Metric",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
-                "authority_level": 1,
+                "authority_level": 2,
                 "evidence": {
                     "metric_id": "MTR-006",
                     "metric_name": metric["name"],
@@ -513,9 +576,9 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "status": "active"
                 },
                 "rewrites": {
-                    "direct": "$18.5M in annual recurring revenue",
+                    "direct": "$18.5M Annual Recurring Revenue (ARR)",
                     "punchy": "$18.5M ARR",
-                    "conservative": "$18.5M ARR as audited in FY25 financial statements"
+                    "conservative": "$18.5M in audited ARR (Deloitte FY25)"
                 }
             })
 
@@ -693,37 +756,69 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             }
         })
 
-    # 7. Turnaround reduction (75%)
+    # 7. Turnaround reduction (75% projected target)
     turn_matches = list(re.finditer(r"(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)", text, re.IGNORECASE))
     for m in turn_matches:
         metric = VERIFIED_METRICS["MTR-005"]
-        findings.append({
-            "id": f"PY-T2-TURN-{m.start()}",
-            "category": "claim_verification",
-            "verdict": "VERIFIED",
-            "matched_text": m.group(0),
-            "start_index": m.start(),
-            "end_index": m.end(),
-            "severity": "success",
-            "explanation": "Verified against projected operational targets.",
-            "guideline_title": "Review Turnaround Target",
-            "guideline_citation": f"{metric['source']} — {metric['citation']}",
-            "authority_level": 2,
-            "evidence": {
-                "metric_id": "MTR-005",
-                "metric_name": metric["name"],
-                "approved_value": metric["approved"],
-                "source_document": metric["source"],
-                "section_citation": metric["citation"],
-                "validity_period": metric["validity"],
-                "status": "active"
-            },
-            "rewrites": {
-                "direct": "turnaround reduction by up to 75%",
-                "punchy": "slashing routine reviews by up to 75%",
-                "conservative": "projected review turnaround reduction of up to 75%"
-            }
-        })
+        preceding = text[max(0, m.start() - 40):m.start()].lower()
+        is_target_framing = bool(re.search(r"\b(?:target|targets|targeting|projected|projecting|aims to|goal of|designed to)\b", preceding, re.IGNORECASE))
+        if is_target_framing:
+            findings.append({
+                "id": f"PY-T2-TURN-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "VERIFIED",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "success",
+                "explanation": f"Verified Projected Target. Framed accurately as an engineering target benchmark ({metric['approved']}) per Round 2 Operational Plan.",
+                "guideline_title": "Review Turnaround Target",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-005",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "targets routine review turnaround reduction of up to 75%",
+                    "punchy": "projected up to 75% turnaround acceleration",
+                    "conservative": "projected turnaround reduction of up to 75%"
+                }
+            })
+        else:
+            findings.append({
+                "id": f"PY-T2-TURN-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unqualified Operational Target. Draft asserts '{m.group(0)}' as an established operational outcome. Per MTR-005 tolerance guidelines, the 75% turnaround reduction is an internal projected engineering target, not an empirically certified historical outcome, and must be qualified with 'projected' or 'target'.",
+                "guideline_title": "Unqualified Operational Target",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-005",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "targets routine review turnaround reduction of up to 75%",
+                    "punchy": "projected up to 75% turnaround acceleration",
+                    "conservative": "projected turnaround reduction of up to 75%"
+                }
+            })
 
     # 8. Unsupported business & footprint metrics (subscribers, users, downloads, offices, locations, regions, team)
     unsupp_matches = list(re.finditer(

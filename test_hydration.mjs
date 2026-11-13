@@ -6,7 +6,23 @@ async function run() {
   console.log('  VERIBRAND AI — LIVE BROWSER HYDRATION TEST (PLAYWRIGHT)');
   console.log('======================================================================');
 
-  const browser = await chromium.launch({ channel: 'msedge', headless: true });
+  // Multi-engine launch fallback (Edge -> Chrome -> default Chromium)
+  let browser;
+  let browserTypeUsed = 'default Chromium';
+  try {
+    browser = await chromium.launch({ channel: 'msedge', headless: true });
+    browserTypeUsed = 'Microsoft Edge (channel: msedge)';
+  } catch {
+    try {
+      browser = await chromium.launch({ channel: 'chrome', headless: true });
+      browserTypeUsed = 'Google Chrome (channel: chrome)';
+    } catch {
+      browser = await chromium.launch({ headless: true });
+      browserTypeUsed = 'Playwright Headless Chromium';
+    }
+  }
+  console.log(`Launched browser engine: ${browserTypeUsed}`);
+
   const context = await browser.newContext();
   const page = await context.newPage();
 
@@ -28,23 +44,25 @@ async function run() {
   await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
 
-  // Scenario 2: Tab Switching Navigation
-  console.log('[Scenario 2] Testing tab switches (Reviewer, Heatmap, Brand Vault)...');
-  const tabs = ['Reviewer Dashboard', 'Ambiguity Heatmap', 'Brand Vault', 'Draft Editor'];
+  // Scenario 2: Tab Switching Navigation (Verify All 4 Tabs Render Cleanly)
+  console.log('[Scenario 2] Testing tab switches (Reviewer, Heatmap, Brand Vault, Editor)...');
+  const tabs = ['Reviewer Hub', 'Ambiguity Heatmap', 'Brand Vault', 'Draft Studio'];
   for (const tabName of tabs) {
-    const tabBtn = page.getByRole('button', { name: tabName }).first();
-    if (await tabBtn.isVisible()) {
+    const tabBtn = page.getByRole('button', { name: new RegExp(tabName, 'i') }).first();
+    if (await tabBtn.isVisible().catch(() => false)) {
       await tabBtn.click();
-      await page.waitForTimeout(200);
+      await page.waitForTimeout(250);
     }
   }
 
-  // Scenario 3: Pre-seeded dirty localStorage
+  // Scenario 3: Pre-seeded dirty localStorage Re-Hydration
   console.log('[Scenario 3] Testing dirty localStorage re-hydration...');
   const seedContent = 'Pre-existing draft loaded from prior session.';
   await page.evaluate((content) => {
-    localStorage.setItem('veribrand_editor_content_v2', content);
-    localStorage.setItem('veribrand_submissions_v2', JSON.stringify([]));
+    try {
+      localStorage.setItem('veribrand_editor_content_v2', content);
+      localStorage.setItem('veribrand_submissions_v2', JSON.stringify([]));
+    } catch {}
   }, seedContent);
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
@@ -56,7 +74,7 @@ async function run() {
       m.type === 'error'
   );
 
-  console.log(`Total Console Messages: ${consoleMessages.length}`);
+  console.log(`\nTotal Console Messages: ${consoleMessages.length}`);
   for (const m of consoleMessages) {
     console.log(`  [${m.type.toUpperCase()}] ${m.text}`);
   }
@@ -69,7 +87,7 @@ async function run() {
     process.exit(1);
   }
 
-  console.log('\n-> PASS: Zero hydration errors, zero page errors, and zero console errors detected in live Chromium!');
+  console.log('\n-> PASS: Zero hydration errors, zero page errors, and zero console errors detected across all scenarios!');
   await browser.close();
   console.log('======================================================================');
 }
