@@ -141,6 +141,39 @@ BRAND_RULES = [
         "authority": 2,
         "citation": "Responsible AI Principles §2.1",
         "explanation": "We champion human-in-the-loop coaching, not total human replacement."
+    },
+    {
+        "id": "RULE-CLAIM-03",
+        "patterns": [],
+        "approved": "99.9% uptime SLA",
+        "title": "System Availability & SLA Quoting",
+        "category": "claim_verification",
+        "severity": "critical",
+        "authority": 1,
+        "citation": "Enterprise Master Service Agreement (MSA) v4.1 Schedule B",
+        "explanation": "System uptime SLA is officially audited at 99.9%. Quoting 99.99% or 99.999% without contractual addenda constitutes false advertising."
+    },
+    {
+        "id": "RULE-PRICE-07",
+        "patterns": [],
+        "approved": "$79/mo Starter plan",
+        "title": "Legacy Pricing Quotes ($49/mo)",
+        "category": "claim_verification",
+        "severity": "warning",
+        "authority": 2,
+        "citation": "Product Pricing Schedule FY26 v2.0 (Superseded)",
+        "explanation": "The $49/mo legacy starter plan was discontinued on 2026-09-01 and superseded by the $79/mo Starter tier."
+    },
+    {
+        "id": "RULE-VIS-01",
+        "patterns": ["#ff0033", "#00ff00", "#ff00ff"],
+        "approved": "Brand Indigo (#4F46E5)",
+        "title": "Hex Palette & Color Accent Guardrails",
+        "category": "visual_token",
+        "severity": "warning",
+        "authority": 2,
+        "citation": "Brand Stylebook v3.2 §4.1 (Color Systems)",
+        "explanation": "Marketing graphics and UI designs must strictly adhere to approved brand colors (Brand Indigo #4F46E5, Brand Cyan #06B6D4)."
     }
 ]
 
@@ -345,12 +378,12 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; lower bound >= 420 verified up to 500)
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; lower bound >= 420 verified)
     cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        is_accurate = (claimed_num >= 420 and claimed_num <= 500)
+        is_accurate = (claimed_num >= 420)
         if is_accurate:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",

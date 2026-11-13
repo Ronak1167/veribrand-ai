@@ -62,11 +62,22 @@ assert d6['complianceScore'] < 100, f"Expected <100, got {d6['complianceScore']}
 assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d6['findings']), "Expected UNVERIFIED for footprint assertions"
 print("-> TEST 6 PASSED: Corporate footprint assertions ('17 regional offices', '50 global locations', '17 regions') caught with deterministic abstention!")
 
-# Test 7: Customer Count Growth Verification (421+ within audited range is verified as >=420)
+# Test 7: Customer Count Growth Verification (421 within audited range is verified as >=420)
 cust_421_text = "We have 421 enterprise customers."
 d7 = test_payload("TEST 7: CUSTOMER COUNT 421 GROWTH LOWER BOUND", cust_421_text)
 assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d7['findings']), "Expected VERIFIED on 421 customers"
 assert not any(f['verdict'] == 'CONFLICT' for f in d7['findings']), "False CONFLICT on 421 customers"
 print("-> TEST 7 PASSED: 421 enterprise customers verified under 420+ lower bound!")
 
-print("\nALL 7 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 8: Unrestricted Lower-Bound Customer Count Verification (501 and 600 verified; 419 conflict)
+cust_501_text = "We have 501 enterprise customers."
+d8 = test_payload("TEST 8: CUSTOMER COUNT 501 GROWTH (>= 420+ LOWER BOUND)", cust_501_text)
+assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d8['findings']), "Expected VERIFIED on 501 customers"
+assert not any(f['verdict'] == 'CONFLICT' for f in d8['findings']), "False CONFLICT on 501 customers"
+
+cust_419_text = "We have 419 enterprise customers."
+d8b = test_payload("TEST 8b: CUSTOMER COUNT 419 DEFICIT (< 420 LOWER BOUND)", cust_419_text)
+assert any(f['verdict'] == 'CONFLICT' and 'customer' in f['guidelineTitle'].lower() for f in d8b['findings']), "Expected CONFLICT on 419 customers"
+print("-> TEST 8 PASSED: Customer count verified strictly as 420+ lower bound (419 CONFLICT, 501/600 VERIFIED)!")
+
+print("\nALL 8 VERIFICATION TESTS PASSED CLEANLY!")

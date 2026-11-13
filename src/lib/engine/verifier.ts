@@ -355,9 +355,9 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      // Ground truth is "420+ active enterprise customer accounts" (lower bound >= 420 verified up to 500)
+      // Ground truth is "420+ active enterprise customer accounts" (lower bound >= 420 verified)
       const count = claim.rawNumber || 0;
-      const isAccurate = count >= 420 && count <= 500;
+      const isAccurate = count >= 420;
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,

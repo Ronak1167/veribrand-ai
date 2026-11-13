@@ -86,6 +86,39 @@ export const BRAND_RULES: BrandRule[] = [
     approvedAlternative: 'empowers brand teams with automated pre-screening while maintaining human oversight',
     citation: 'Responsible AI Principles (Inkloom AI) §2.1',
   },
+  {
+    id: 'RULE-CLAIM-03',
+    category: 'claim_verification',
+    title: 'System Availability & SLA Quoting',
+    description: 'System uptime SLA is officially audited at 99.9%. Quoting 99.99% or 99.999% without contractual addenda constitutes false advertising.',
+    authorityLevel: 1, // Legal
+    severity: 'critical',
+    forbiddenPatterns: [], // Grounded and verified via Tier-2 Structured Claim Verifier
+    approvedAlternative: '99.9% uptime SLA',
+    citation: 'Enterprise Master Service Agreement (MSA) v4.1 Schedule B',
+  },
+  {
+    id: 'RULE-PRICE-07',
+    category: 'claim_verification',
+    title: 'Legacy Pricing Quotes ($49/mo)',
+    description: 'The $49/mo legacy starter plan was discontinued on 2026-09-01 and superseded by the $79/mo Starter tier. Citing $49/mo without renewal disclosure is outdated.',
+    authorityLevel: 2, // Stylebook
+    severity: 'warning',
+    forbiddenPatterns: [], // Grounded and verified via Tier-2 Structured Claim Verifier
+    approvedAlternative: '$79/mo Starter plan',
+    citation: 'Product Pricing Schedule FY26 v2.0 (Superseded)',
+  },
+  {
+    id: 'RULE-VIS-01',
+    category: 'visual_token',
+    title: 'Hex Palette & Color Accent Guardrails',
+    description: 'Marketing graphics and UI designs must strictly adhere to approved brand colors (Brand Indigo #4F46E5, Brand Cyan #06B6D4). Rogue hex swatches are prohibited.',
+    authorityLevel: 2, // Stylebook
+    severity: 'warning',
+    forbiddenPatterns: ['#ff0033', '#00ff00', '#ff00ff'],
+    approvedAlternative: 'Brand Indigo (#4F46E5)',
+    citation: 'Brand Stylebook v3.2 §4.1 (Color Systems)',
+  },
 ];
 
 export const VERIFIED_METRICS: VerifiedMetric[] = [

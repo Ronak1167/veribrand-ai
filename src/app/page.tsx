@@ -51,11 +51,11 @@ const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
     auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
     sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
     signedOffAt: '2026-11-13T08:30:00.000Z',
-    signedOffBy: 'Sarah Chen (Brand Guardian)',
+    signedOffBy: 'Brand Guardian (Demo Reviewer)',
     comments: [
       {
         id: 'C-2',
-        author: 'Sarah Chen',
+        author: 'Brand Guardian (Demo Reviewer)',
         role: 'Brand Reviewer',
         text: 'Clean audit pass. Approved for public syndication.',
         timestamp: '2026-11-13T08:30:00.000Z',
@@ -68,55 +68,50 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
   const [channel, setChannel] = useState<ChannelType>('linkedin');
 
-  // Lazy initialize persistent state from localStorage without triggering cascading renders in effects
-  const [content, setContent] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
+  // Client hydration safe state initialization matching SSR
+  const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
+  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(INITIAL_SUBMISSIONS);
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
+
+  // Restore persistent state after hydration without causing SSR mismatch or synchronous render cascades
+  useEffect(() => {
+    const timer = setTimeout(() => {
       try {
         const saved = localStorage.getItem('veribrand_editor_content_v2');
-        if (saved) return saved;
+        if (saved) setContent(saved);
+        const savedMetrics = localStorage.getItem('veribrand_ambiguity_metrics_v2');
+        if (savedMetrics) setAmbiguityMetrics(JSON.parse(savedMetrics));
+        const savedSubs = localStorage.getItem('veribrand_submissions_v2');
+        if (savedSubs) setSubmissions(JSON.parse(savedSubs));
       } catch {}
-    }
-    return PRESET_DRAFTS[0].content;
-  });
+      setIsHydrated(true);
+    }, 0);
 
-  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('veribrand_ambiguity_metrics_v2');
-        if (saved) return JSON.parse(saved);
-      } catch {}
-    }
-    return INITIAL_AMBIGUITY_METRICS;
-  });
+    return () => clearTimeout(timer);
+  }, []);
 
-  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const saved = localStorage.getItem('veribrand_submissions_v2');
-        if (saved) return JSON.parse(saved);
-      } catch {}
-    }
-    return INITIAL_SUBMISSIONS;
-  });
-
-  // Sync state changes to localStorage
+  // Sync state changes to localStorage after hydration
   useEffect(() => {
+    if (!isHydrated) return;
     try {
       localStorage.setItem('veribrand_submissions_v2', JSON.stringify(submissions));
     } catch {}
-  }, [submissions]);
+  }, [submissions, isHydrated]);
 
   useEffect(() => {
+    if (!isHydrated) return;
     try {
       localStorage.setItem('veribrand_ambiguity_metrics_v2', JSON.stringify(ambiguityMetrics));
     } catch {}
-  }, [ambiguityMetrics]);
+  }, [ambiguityMetrics, isHydrated]);
 
   useEffect(() => {
+    if (!isHydrated) return;
     try {
       localStorage.setItem('veribrand_editor_content_v2', content);
     } catch {}
-  }, [content]);
+  }, [content, isHydrated]);
 
   // Compute live audit in real time
   const auditResult = useMemo(() => {

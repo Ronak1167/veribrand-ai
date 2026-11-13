@@ -14,7 +14,7 @@ const ALLOWED_CHANNELS: ChannelType[] = [
 ];
 
 export async function POST(req: NextRequest) {
-  let body: { text?: unknown; channel?: unknown };
+  let body: unknown;
 
   // Strict JSON payload parsing with client-error (400) handling
   try {
@@ -26,27 +26,44 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const { text, channel = 'enterprise_web' } = body;
-
-  if (!text || typeof text !== 'string') {
+  // Reject null, primitives, and arrays as root JSON values
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
     return NextResponse.json(
-      { error: 'Field "text" is required and must be a string.' },
+      { error: 'Request body must be a valid JSON object.' },
       { status: 400 }
     );
   }
 
-  // Strict channel validation
-  if (channel && typeof channel === 'string' && !ALLOWED_CHANNELS.includes(channel as ChannelType)) {
+  const payload = body as Record<string, unknown>;
+  const text = payload.text;
+
+  if (typeof text !== 'string' || text.trim().length === 0) {
     return NextResponse.json(
-      {
-        error: `Invalid channel "${channel}". Allowed channels: ${ALLOWED_CHANNELS.join(', ')}`,
-      },
+      { error: 'Field "text" is required and must be a non-empty string.' },
       { status: 400 }
     );
+  }
+
+  // Strict channel validation — reject non-string, null, empty, or unlisted channels
+  let channel: ChannelType = 'enterprise_web';
+  if ('channel' in payload && payload.channel !== undefined) {
+    if (
+      typeof payload.channel !== 'string' ||
+      payload.channel.trim().length === 0 ||
+      !ALLOWED_CHANNELS.includes(payload.channel as ChannelType)
+    ) {
+      return NextResponse.json(
+        {
+          error: `Invalid channel "${String(payload.channel)}". Allowed channels: ${ALLOWED_CHANNELS.join(', ')}`,
+        },
+        { status: 400 }
+      );
+    }
+    channel = payload.channel as ChannelType;
   }
 
   try {
-    const result = auditContent(text, (channel as ChannelType) || 'enterprise_web');
+    const result = auditContent(text, channel);
     return NextResponse.json(result, { status: 200 });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'Internal Server Error';

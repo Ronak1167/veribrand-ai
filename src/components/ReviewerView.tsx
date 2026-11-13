@@ -30,7 +30,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
     submissions[0]?.id || ''
   );
   const [newComment, setNewComment] = useState<string>('');
-  const [reviewerName, setReviewerName] = useState<string>('Sarah Chen (Brand Guardian)');
+  const [reviewerName, setReviewerName] = useState<string>('Brand Guardian (Demo Reviewer)');
   const [feedbackNote, setFeedbackNote] = useState<string>('');
   const [changesModalOpen, setChangesModalOpen] = useState<boolean>(false);
 
