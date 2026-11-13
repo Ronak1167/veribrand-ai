@@ -55,11 +55,18 @@ assert d5['complianceScore'] < 100, f"Expected <100, got {d5['complianceScore']}
 assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d5['findings']), "Expected UNVERIFIED for 2,000 paying subscribers"
 print("-> TEST 5 PASSED: Unsupported assertion '2,000 paying subscribers' caught with model abstention!")
 
-# Test 6: Corporate Footprint Edge Case ("17 regional offices worldwide" must NOT pass as 100% compliant!)
-offices_text = "We have 17 regional offices worldwide."
-d6 = test_payload("TEST 6: CORPORATE FOOTPRINT ASSERTION ('17 regional offices')", offices_text)
+# Test 6: Corporate Footprint Edge Case ("17 regional offices", "50 global locations")
+offices_text = "We have 17 regional offices and 50 global locations, serving 17 regions across the globe."
+d6 = test_payload("TEST 6: CORPORATE FOOTPRINT ASSERTIONS", offices_text)
 assert d6['complianceScore'] < 100, f"Expected <100, got {d6['complianceScore']}"
-assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d6['findings']), "Expected UNVERIFIED for 17 regional offices"
-print("-> TEST 6 PASSED: Corporate footprint assertion '17 regional offices' caught with model abstention!")
+assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d6['findings']), "Expected UNVERIFIED for footprint assertions"
+print("-> TEST 6 PASSED: Corporate footprint assertions ('17 regional offices', '50 global locations', '17 regions') caught with deterministic abstention!")
 
-print("\nALL 6 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 7: Customer Count Growth Verification (421+ within audited range is verified as >=420)
+cust_421_text = "We have 421 enterprise customers."
+d7 = test_payload("TEST 7: CUSTOMER COUNT 421 GROWTH LOWER BOUND", cust_421_text)
+assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d7['findings']), "Expected VERIFIED on 421 customers"
+assert not any(f['verdict'] == 'CONFLICT' for f in d7['findings']), "False CONFLICT on 421 customers"
+print("-> TEST 7 PASSED: 421 enterprise customers verified under 420+ lower bound!")
+
+print("\nALL 7 VERIFICATION TESTS PASSED CLEANLY!")

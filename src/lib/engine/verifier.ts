@@ -270,8 +270,9 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 8. General / Unsupported business & footprint metrics (e.g. "2,000 paying subscribers", "17 regional offices", "50 global locations")
-  const unsupportedRegex = /(?:over|more than|supports?|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts|regional offices|offices|global offices|locations|branches|countries|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b/gi;
+  // 8. General / Unsupported business & footprint metrics (e.g. "2,000 paying subscribers", "17 regional offices", "50 global locations", "serves 17 regions")
+  const unsupportedRegex =
+    /(?:over|more than|supports?|serves?|serving|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:(?:global|regional|international|active|paying|registered|daily|monthly)\s+)?(?:subscribers|users|downloads|client accounts|offices|locations|branches|countries|regions|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b/gi;
   while ((match = unsupportedRegex.exec(text)) !== null) {
     claims.push({
       text: match[0].trim(),
@@ -355,9 +356,9 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      // Strict verification: Ground truth is 420+ active enterprise customers
+      // Ground truth is "420+ active enterprise customer accounts" (lower bound >= 420 verified up to 500)
       const count = claim.rawNumber || 0;
-      const isAccurate = (count === 420);
+      const isAccurate = count >= 420 && count <= 500;
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,
@@ -749,14 +750,14 @@ export function auditContent(
     documentId: 'DOC-AUDIT-LIVE',
     channel,
     complianceScore: score,
-    // P0 FIX: Honest measured latency
-    tier1LatencyMs: Math.max(0.1, t1.latencyMs),
-    tier2LatencyMs: Math.max(0.1, t2.latencyMs),
+    // Honest measured latency (unfloored, 2 decimal places)
+    tier1LatencyMs: Math.round(t1.latencyMs * 100) / 100,
+    tier2LatencyMs: Math.round(t2.latencyMs * 100) / 100,
     findings: allFindings,
     metricsAuditedCount: VERIFIED_METRICS.length,
     claimsVerifiedCount: verifiedCount,
     claimsConflictedCount: conflictCount,
     claimsUnverifiedCount: unverifiedCount,
-    timestamp: '2026-11-13T10:00:00.000Z',
+    timestamp: new Date().toISOString(),
   };
 }

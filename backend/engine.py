@@ -5,6 +5,7 @@
 
 import time
 import re
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Tuple
 import numpy as np
 import cv2
@@ -273,12 +274,12 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Strict accuracy: Ground truth is 420+ active enterprise customers)
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; lower bound >= 420 verified up to 500)
     cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        is_accurate = (claimed_num == 420)
+        is_accurate = (claimed_num >= 420 and claimed_num <= 500)
         if is_accurate:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",
@@ -606,8 +607,14 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             }
         })
 
-    # 8. Unsupported business & footprint metrics (subscribers, users, downloads, offices, locations, team)
-    unsupp_matches = list(re.finditer(r"(?:over|more than|supports?|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts|regional offices|offices|global offices|locations|branches|countries|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b", text, re.IGNORECASE))
+    # 8. Unsupported business & footprint metrics (subscribers, users, downloads, offices, locations, regions, team)
+    unsupp_matches = list(re.finditer(
+        r"(?:over|more than|supports?|serves?|serving|with|have|has|operating in|across)?\s*"
+        r"([0-9,]+)\+?\s+"
+        r"(?:(?:global|regional|international|active|paying|registered|daily|monthly)\s+)?"
+        r"(?:subscribers|users|downloads|client accounts|offices|locations|branches|countries|regions|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b",
+        text, re.IGNORECASE
+    ))
     for m in unsupp_matches:
         findings.append({
             "id": f"PY-T2-UNSUPP-{m.start()}",
@@ -669,7 +676,7 @@ def audit_document(text: str, channel: str = "enterprise_web") -> Dict[str, Any]
         "claims_verified_count": verified_count,
         "claims_conflicted_count": conflict_count,
         "claims_unverified_count": unverified_count,
-        "timestamp": "2026-11-13T10:00:00.000Z"
+        "timestamp": datetime.now(timezone.utc).isoformat()
     }
 
 # Genuine OpenCV K-Means Palette & WCAG 2.1 AA Contrast Extraction
