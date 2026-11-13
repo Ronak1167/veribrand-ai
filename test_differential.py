@@ -102,22 +102,34 @@ def run_differential_suite():
         print(f"    TypeScript Engine: Score={ts_score}/100, Conflicts={ts_conflicts}, Verified={ts_verified}, Findings={len(ts_res['findings'])}")
         print(f"    Python Engine:     Score={py_score}/100, Conflicts={py_conflicts}, Verified={py_verified}, Findings={len(py_res['findings'])}")
         
-        # Verify score alignment within tolerance band (+-10 pts due to channel weights)
+        # Verify strict score and findings parity
         score_diff = abs(ts_score - py_score)
-        assert score_diff <= 15, f"Score diverged by {score_diff} points ({ts_score} vs {py_score})"
-        
+        if score_diff != 0:
+            print(f"    ERROR: Score delta {score_diff} (TS: {ts_score}, PY: {py_score})")
+            all_passed = False
+
+        if len(ts_res['findings']) != len(py_res['findings']):
+            print(f"    ERROR: Findings count mismatch (TS: {len(ts_res['findings'])}, PY: {len(py_res['findings'])})")
+            all_passed = False
+
         if item.get("expect_zero_conflicts"):
-            assert ts_conflicts == 0, f"Expected 0 TS conflicts, got {ts_conflicts}"
-            assert py_conflicts == 0, f"Expected 0 PY conflicts, got {py_conflicts}"
-            
+            if ts_conflicts != 0 or py_conflicts != 0:
+                print(f"    ERROR: Expected 0 conflicts (TS: {ts_conflicts}, PY: {py_conflicts})")
+                all_passed = False
+
         if item.get("expect_conflicts"):
-            assert ts_conflicts >= 3, f"Expected >=3 TS conflicts, got {ts_conflicts}"
-            assert py_conflicts >= 3, f"Expected >=3 PY conflicts, got {py_conflicts}"
-            
-        print(f"    -> Behavioral alignment passed (score delta: {score_diff} pts, conflict parity matched).")
+            if ts_conflicts < 3 or py_conflicts < 3:
+                print(f"    ERROR: Expected >=3 conflicts (TS: {ts_conflicts}, PY: {py_conflicts})")
+                all_passed = False
+
+        print(f"    -> Perfect behavioral parity verified: exact 0-point score delta, {ts_conflicts} conflicts, {len(ts_res['findings'])} findings.")
+
+    if not all_passed:
+        print("\nDIFFERENTIAL PARITY SUITE FAILED!")
+        sys.exit(1)
 
     print("\n======================================================================")
-    print("  DIFFERENTIAL PARITY SUITE: ALL SCENARIOS PASSED WITH HIGH FIDELITY!")
+    print("  DIFFERENTIAL PARITY SUITE: ALL SCENARIOS VERIFIED WITH EXACT PARITY (DELTA=0)!")
     print("======================================================================")
 
 if __name__ == "__main__":

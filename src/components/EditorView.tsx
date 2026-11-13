@@ -217,7 +217,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <Zap className="w-3.5 h-3.5 text-amber-400" />
               <div>
                 <p className="text-[10px] text-slate-400 font-medium">Tier-1 Deterministic</p>
-                <p className="font-bold text-slate-200">
+                <p className="font-bold text-slate-200" suppressHydrationWarning>
                   {auditResult.tier1LatencyMs} ms <span className="text-[10px] text-emerald-400 font-normal">(Aho-Corasick)</span>
                 </p>
               </div>
@@ -227,7 +227,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <Clock className="w-3.5 h-3.5 text-cyan-400" />
               <div>
                 <p className="text-[10px] text-slate-400 font-medium">Tier-2 Grounded RAG</p>
-                <p className="font-bold text-slate-200">
+                <p className="font-bold text-slate-200" suppressHydrationWarning>
                   {auditResult.tier2LatencyMs} ms <span className="text-[10px] text-cyan-400 font-normal">(Tri-State Claim)</span>
                 </p>
               </div>

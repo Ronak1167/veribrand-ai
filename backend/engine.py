@@ -90,7 +90,7 @@ VERIFIED_METRICS = {
 BRAND_RULES = [
     {
         "id": "RULE-TM-01",
-        "patterns": ["inkloom", "ink loom", "inkloom ai"],
+        "patterns": ["inkloom", "ink loom", "inkloom ai", "inkloom.ai"],
         "approved": "Inkloom AI",
         "title": "Proper Trademark Casing for Inkloom AI",
         "category": "terminology",
@@ -101,7 +101,7 @@ BRAND_RULES = [
     },
     {
         "id": "RULE-TM-02",
-        "patterns": ["veribrand", "verybrand", "veri brand"],
+        "patterns": ["veribrand", "verybrand", "veri brand", "veribrand.ai"],
         "approved": "VeriBrand AI",
         "title": "Product Naming: VeriBrand AI",
         "category": "terminology",
@@ -112,7 +112,7 @@ BRAND_RULES = [
     },
     {
         "id": "RULE-TERM-03",
-        "patterns": ["artificial intelligence wizard", "ai wizard", "magic algorithm"],
+        "patterns": ["artificial intelligence wizard", "ai wizard", "magic algorithm", "secret sauce"],
         "approved": "Explainable Compliance Co-Pilot",
         "title": "Deprecated Marketing Terminology",
         "category": "terminology",
@@ -123,7 +123,15 @@ BRAND_RULES = [
     },
     {
         "id": "RULE-TONE-04",
-        "patterns": ["world's most revolutionary", "world's best", "zero risk", "guaranteed 100%"],
+        "patterns": [
+            "world's most revolutionary",
+            "world's best",
+            "#1 brand in the world",
+            "unbeatable platform",
+            "flawless guarantee",
+            "zero risk",
+            "guaranteed 100%",
+        ],
         "approved": "industry-leading, empirical brand governance engine",
         "title": "Hyperbolic Unsubstantiated Superlatives",
         "category": "tone_drift",
@@ -134,7 +142,12 @@ BRAND_RULES = [
     },
     {
         "id": "RULE-TONE-05",
-        "patterns": ["replaces all human editors", "replaces all humans"],
+        "patterns": [
+            "replaces all human editors",
+            "replaces all humans",
+            "eliminates need for human review",
+            "no human oversight required",
+        ],
         "approved": "empowers brand teams with automated pre-screening while maintaining human oversight",
         "title": "Absolutist Autonomous Claims",
         "category": "tone_drift",
@@ -766,7 +779,13 @@ def audit_document(text: str, channel: str = "enterprise_web") -> Dict[str, Any]
             unverified_count += 1
             score -= 12
         elif v == "SUGGESTION":
-            score -= 8
+            sev = f.get("severity", "info")
+            if sev == "critical":
+                score -= 10
+            elif sev == "warning":
+                score -= 6
+            else:
+                score -= 3
 
     score = max(0, min(100, score))
 
