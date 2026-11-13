@@ -10,8 +10,6 @@ import {
   Sparkles,
   BarChart3,
   Shield,
-  Layers,
-  ArrowUpRight,
   Info,
 } from 'lucide-react';
 

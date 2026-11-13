@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Shield, Sparkles, CheckCircle2, Flame, Database, FileText } from 'lucide-react';
+import { Sparkles, CheckCircle2, Flame, Database, FileText } from 'lucide-react';
 
 interface NavbarProps {
   activeTab: 'editor' | 'reviewer' | 'heatmap' | 'vault';

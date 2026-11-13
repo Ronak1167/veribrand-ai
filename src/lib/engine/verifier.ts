@@ -8,7 +8,6 @@ import {
   ChannelType,
   RewriteAlternatives,
   EvidenceProvenance,
-  VerifiedMetric,
   BrandRule,
 } from '@/types';
 import { AhoCorasick } from './aho-corasick';

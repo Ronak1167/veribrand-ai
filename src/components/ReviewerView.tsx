@@ -4,15 +4,9 @@ import React, { useState } from 'react';
 import { ReviewSubmission } from '@/types';
 import {
   CheckCircle2,
-  Clock,
   ShieldCheck,
   User,
   MessageSquare,
-  Send,
-  Layers,
-  Sparkles,
-  FileCheck,
-  ChevronRight,
   AlertCircle,
   Hash,
 } from 'lucide-react';

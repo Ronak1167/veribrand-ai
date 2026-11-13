@@ -12,15 +12,12 @@ import {
   ShieldCheck,
   AlertTriangle,
   Sparkles,
-  ArrowRight,
-  Check,
   Send,
   Zap,
   Info,
   Clock,
   Layers,
   BookOpen,
-  MessageSquare,
   HelpCircle,
 } from 'lucide-react';
 

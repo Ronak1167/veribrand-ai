@@ -53,7 +53,7 @@ unsupp_text = "We have 2,000 paying subscribers."
 d5 = test_payload("TEST 5: UNSUPPORTED BUSINESS METRIC", unsupp_text)
 assert d5['complianceScore'] < 100, f"Expected <100, got {d5['complianceScore']}"
 assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d5['findings']), "Expected UNVERIFIED for 2,000 paying subscribers"
-print("-> TEST 5 PASSED: Unsupported assertion '2,000 paying subscribers' caught with model abstention!")
+print("-> TEST 5 PASSED: Unsupported assertion '2,000 paying subscribers' caught with deterministic abstention!")
 
 # Test 6: Corporate Footprint Edge Case ("17 regional offices", "50 global locations")
 offices_text = "We have 17 regional offices and 50 global locations, serving 17 regions across the globe."

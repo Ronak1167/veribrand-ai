@@ -67,53 +67,56 @@ const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
   const [channel, setChannel] = useState<ChannelType>('linkedin');
-  const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
-  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
-  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(INITIAL_SUBMISSIONS);
-  const [isInitialized, setIsInitialized] = useState<boolean>(false);
 
-  // Load persistent state from localStorage on client mount
-  useEffect(() => {
-    try {
-      const savedSubs = localStorage.getItem('veribrand_submissions_v2');
-      if (savedSubs) {
-        setSubmissions(JSON.parse(savedSubs));
-      }
-      const savedMetrics = localStorage.getItem('veribrand_ambiguity_metrics_v2');
-      if (savedMetrics) {
-        setAmbiguityMetrics(JSON.parse(savedMetrics));
-      }
-      const savedContent = localStorage.getItem('veribrand_editor_content_v2');
-      if (savedContent) {
-        setContent(savedContent);
-      }
-    } catch {
-      // Fallback cleanly if localStorage is restricted or corrupted
+  // Lazy initialize persistent state from localStorage without triggering cascading renders in effects
+  const [content, setContent] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('veribrand_editor_content_v2');
+        if (saved) return saved;
+      } catch {}
     }
-    setIsInitialized(true);
-  }, []);
+    return PRESET_DRAFTS[0].content;
+  });
+
+  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('veribrand_ambiguity_metrics_v2');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return INITIAL_AMBIGUITY_METRICS;
+  });
+
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('veribrand_submissions_v2');
+        if (saved) return JSON.parse(saved);
+      } catch {}
+    }
+    return INITIAL_SUBMISSIONS;
+  });
 
   // Sync state changes to localStorage
   useEffect(() => {
-    if (!isInitialized) return;
     try {
       localStorage.setItem('veribrand_submissions_v2', JSON.stringify(submissions));
     } catch {}
-  }, [submissions, isInitialized]);
+  }, [submissions]);
 
   useEffect(() => {
-    if (!isInitialized) return;
     try {
       localStorage.setItem('veribrand_ambiguity_metrics_v2', JSON.stringify(ambiguityMetrics));
     } catch {}
-  }, [ambiguityMetrics, isInitialized]);
+  }, [ambiguityMetrics]);
 
   useEffect(() => {
-    if (!isInitialized) return;
     try {
       localStorage.setItem('veribrand_editor_content_v2', content);
     } catch {}
-  }, [content, isInitialized]);
+  }, [content]);
 
   // Compute live audit in real time
   const auditResult = useMemo(() => {

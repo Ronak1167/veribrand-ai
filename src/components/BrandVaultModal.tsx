@@ -10,7 +10,6 @@ import {
   AlertTriangle,
   BookOpen,
   Search,
-  ExternalLink,
 } from 'lucide-react';
 import {
   BRAND_RULES,
