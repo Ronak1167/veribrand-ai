@@ -201,7 +201,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                       {activeItem.sha256Hash}
                     </p>
                     <p className="text-[10px] text-slate-500">
-                      Timestamped: {activeItem.signedOffAt} • Immutable Audit Ledger Committed
+                      Timestamped: {activeItem.signedOffAt} • Browser-Side Content-Integrity Record Committed (SHA-256)
                     </p>
                   </div>
                 )}

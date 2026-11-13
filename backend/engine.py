@@ -6,7 +6,8 @@
 import time
 import re
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple
+from collections import deque
+from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 import cv2
 
@@ -73,6 +74,15 @@ VERIFIED_METRICS = {
         "citation": "Pricing Appendix A",
         "validity": "Discontinued on 2026-09-01",
         "status": "outdated"
+    },
+    "MTR-008": {
+        "name": "Stylebook Consultation Frequency Survey",
+        "approved": "86% (12 of 14)",
+        "raw": 85.71,
+        "source": "VeriBrand Practitioner Research Survey (14 Marketers)",
+        "citation": "§1 Empirical Problem Evidence",
+        "validity": "Active Indefinite",
+        "status": "active"
     }
 }
 
@@ -134,50 +144,111 @@ BRAND_RULES = [
     }
 ]
 
+# Genuine In-Memory Aho-Corasick Automaton for O(n + m) Multi-Pattern Scanning
+class AhoCorasickNode:
+    def __init__(self):
+        self.children: Dict[str, AhoCorasickNode] = {}
+        self.fail: Optional['AhoCorasickNode'] = None
+        self.outputs: List[Tuple[str, Dict[str, Any]]] = []
+
+class PythonAhoCorasick:
+    def __init__(self):
+        self.root = AhoCorasickNode()
+
+    def add_pattern(self, pattern: str, data: Dict[str, Any]):
+        node = self.root
+        for char in pattern.lower():
+            if char not in node.children:
+                node.children[char] = AhoCorasickNode()
+            node = node.children[char]
+        node.outputs.append((pattern, data))
+
+    def build_failure_links(self):
+        queue = deque()
+        for char, child in self.root.children.items():
+            child.fail = self.root
+            queue.append(child)
+
+        while queue:
+            curr = queue.popleft()
+            for char, child in curr.children.items():
+                fail_state = curr.fail
+                while fail_state and char not in fail_state.children:
+                    fail_state = fail_state.fail
+                child.fail = fail_state.children[char] if fail_state else self.root
+                child.outputs.extend(child.fail.outputs)
+                queue.append(child)
+
+    def search(self, text: str) -> List[Tuple[int, int, str, Dict[str, Any]]]:
+        matches = []
+        node = self.root
+        lower = text.lower()
+        for i, char in enumerate(lower):
+            while node and char not in node.children:
+                node = node.fail
+            if not node:
+                node = self.root
+                continue
+            node = node.children[char]
+            for pattern, data in node.outputs:
+                start_idx = i - len(pattern) + 1
+                end_idx = i + 1
+                matches.append((start_idx, end_idx, pattern, data))
+        return matches
+
+# Pre-build Python Aho-Corasick Automaton
+_python_ac = PythonAhoCorasick()
+for rule in BRAND_RULES:
+    for pattern in rule["patterns"]:
+        _python_ac.add_pattern(pattern, rule)
+_python_ac.build_failure_links()
+
 def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
     start = time.perf_counter()
     findings = []
     lower_text = text.lower()
 
-    for rule in BRAND_RULES:
-        for pattern in rule["patterns"]:
-            pos = 0
-            while True:
-                idx = lower_text.find(pattern, pos)
-                if idx == -1:
-                    break
-                
-                # Check word boundaries
-                prev_char = lower_text[idx - 1] if idx > 0 else ' '
-                next_char = lower_text[idx + len(pattern)] if idx + len(pattern) < len(lower_text) else ' '
-                if not prev_char.isalnum() and not next_char.isalnum():
-                    # P0 BUG FIX: Check if original slice is ALREADY properly capitalized
-                    original_slice = text[idx:idx + len(pattern)]
-                    candidate_full = text[idx:idx + len(rule["approved"])]
-                    if original_slice == rule["approved"] or candidate_full == rule["approved"]:
-                        pos = idx + len(pattern)
-                        continue
+    # O(n + m) single-pass Aho-Corasick automaton search
+    ac_matches = _python_ac.search(text)
+    seen_spans = set()
 
-                    findings.append({
-                        "id": f"PY-T1-{rule['id']}-{idx}",
-                        "category": rule["category"],
-                        "verdict": "SUGGESTION",
-                        "reason_code": "FORBIDDEN_TERM" if rule["category"] == "terminology" else "HYPERBOLIC_SUPERLATIVE",
-                        "matched_text": original_slice,
-                        "start_index": idx,
-                        "end_index": idx + len(pattern),
-                        "severity": rule["severity"],
-                        "explanation": rule["explanation"],
-                        "guideline_title": rule["title"],
-                        "guideline_citation": rule["citation"],
-                        "authority_level": rule["authority"],
-                        "rewrites": {
-                            "direct": rule["approved"],
-                            "punchy": f"{rule['approved']} (verified)",
-                            "conservative": f"{rule['approved']} enterprise standard"
-                        }
-                    })
-                pos = idx + len(pattern)
+    for start_idx, end_idx, pattern, rule in ac_matches:
+        span_key = (start_idx, end_idx)
+        if span_key in seen_spans:
+            continue
+
+        # Word boundary check
+        prev_char = lower_text[start_idx - 1] if start_idx > 0 else ' '
+        next_char = lower_text[end_idx] if end_idx < len(lower_text) else ' '
+        if prev_char.isalnum() or next_char.isalnum():
+            continue
+
+        # Case-preservation check: If already properly capitalized, skip
+        original_slice = text[start_idx:end_idx]
+        candidate_full = text[start_idx:start_idx + len(rule["approved"])]
+        if original_slice == rule["approved"] or candidate_full == rule["approved"]:
+            continue
+
+        seen_spans.add(span_key)
+        findings.append({
+            "id": f"PY-T1-{rule['id']}-{start_idx}",
+            "category": rule["category"],
+            "verdict": "SUGGESTION",
+            "reason_code": "FORBIDDEN_TERM" if rule["category"] == "terminology" else "HYPERBOLIC_SUPERLATIVE",
+            "matched_text": original_slice,
+            "start_index": start_idx,
+            "end_index": end_idx,
+            "severity": rule["severity"],
+            "explanation": rule["explanation"],
+            "guideline_title": rule["title"],
+            "guideline_citation": rule["citation"],
+            "authority_level": rule["authority"],
+            "rewrites": {
+                "direct": rule["approved"],
+                "punchy": f"{rule['approved']} (verified)",
+                "conservative": f"{rule['approved']} enterprise standard"
+            }
+        })
 
     # Rogue Hex check
     hex_pattern = r"#(?:[0-9a-fA-F]{3}){1,2}\b"

@@ -71,38 +71,38 @@ export const AmbiguityHeatmapView: React.FC<AmbiguityHeatmapViewProps> = ({ metr
         </div>
       </div>
 
-      {/* Insight Highlight Cards */}
+      {/* Insight Highlight Cards (Seeded Demo Telemetry Baseline) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Exploratory Practitioner Survey Finding</span>
+            <span>Practitioner Survey (Seeded Baseline)</span>
             <Info className="w-3.5 h-3.5 text-indigo-400" />
           </div>
           <p className="text-2xl font-black text-white">100% of Brand Leads</p>
           <p className="text-xs text-slate-400">
-            Confirmed that repeated draft rejections stem from ambiguous stylebook wording, not writer incompetence.
+            Seeded research finding: Brand leads confirm repeated rejections stem from ambiguous stylebook wording.
           </p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>High-Friction Guideline Cluster</span>
+            <span>High-Friction Cluster (Seeded Telemetry)</span>
             <Flame className="w-3.5 h-3.5 text-rose-400" />
           </div>
           <p className="text-2xl font-black text-rose-400">42.8% Override Rate</p>
           <p className="text-xs text-slate-400">
-            On conversational B2B tone rules and AI terminology jargon; writers find current policies overly rigid.
+            Seeded benchmark: Conversational tone rules and terminology trigger high creator appeal volume.
           </p>
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
           <div className="flex items-center justify-between text-xs text-slate-400">
-            <span>Automated Adoption Velocity</span>
+            <span>Adoption Velocity (Seeded Telemetry)</span>
             <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
           </div>
           <p className="text-2xl font-black text-emerald-400">96.3% 1-Click Fix Rate</p>
           <p className="text-xs text-slate-400">
-            For unambiguous deterministic rules (e.g. Inkloom AI trademark casing), proving clear rules get fixed instantly.
+            Seeded benchmark: Unambiguous deterministic rules (e.g. Inkloom AI trademark casing) are resolved instantly.
           </p>
         </div>
       </div>
