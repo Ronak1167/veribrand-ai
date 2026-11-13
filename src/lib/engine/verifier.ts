@@ -177,7 +177,7 @@ interface ExtractedClaim {
   text: string;
   startIndex: number;
   endIndex: number;
-  claimType: 'uptime' | 'customers' | 'revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround';
+  claimType: 'uptime' | 'customers' | 'revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric';
   rawNumber?: number;
 }
 
@@ -260,13 +260,25 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   }
 
   // 7. Security certs (e.g. "SOC 2 Type II", "not SOC 2 Type II certified")
-  const socRegex = /\b(?:(?:not|never|no|without)\s+)?SOC 2(?: Type II)?\b/gi;
+  const socRegex = /\b(?:(?:not(?:\s+only)?|never|no|without)\s+)?SOC 2(?: Type II)?\b/gi;
   while ((match = socRegex.exec(text)) !== null) {
     claims.push({
       text: match[0],
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'security',
+    });
+  }
+
+  // 8. General / Unsupported business metrics (e.g. "2,000 paying subscribers", "10,000 active users")
+  const unsupportedRegex = /(?:over|more than|supports|with|have)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts)\b/gi;
+  while ((match = unsupportedRegex.exec(text)) !== null) {
+    claims.push({
+      text: match[0].trim(),
+      startIndex: match.index,
+      endIndex: match.index + match[0].length,
+      claimType: 'unsupported_metric',
+      rawNumber: parseInt(match[1].replace(/,/g, ''), 10),
     });
   }
 
@@ -343,9 +355,9 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      // P0 BUG FIX: Only verify if the number actually matches 420+ (tolerance: 400-450)
+      // Strict verification: Ground truth is 420+ active enterprise customers
       const count = claim.rawNumber || 0;
-      const isAccurate = count >= 400 && count <= 450;
+      const isAccurate = (count === 420);
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,
@@ -597,11 +609,12 @@ function runTier2ClaimVerification(text: string): {
     } else if (claim.claimType === 'security') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
 
-      // P0 BUG FIX: Check for negation in surrounding context!
-      const preceding = text.slice(Math.max(0, claim.startIndex - 25), claim.startIndex).toLowerCase();
-      const isNegated = /\b(not|never|neither|no|non|unverified|without|lack|lacks)\b/i.test(preceding) ||
-                        claim.text.toLowerCase().includes('not') ||
-                        claim.text.toLowerCase().includes('never');
+      // Scope-aware negation check: distinguishes "not SOC 2" from affirmative "not only SOC 2"
+      const preceding = text.slice(Math.max(0, claim.startIndex - 30), claim.startIndex).toLowerCase();
+      const fullContext = `${preceding} ${claim.text}`.toLowerCase();
+      const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\b/i.test(fullContext);
+      const hasNegationWord = /\b(not|never|neither|no|non|unverified|without|lack|lacks)\b/i.test(fullContext);
+      const isNegated = hasNegationWord && !isAffirmativeIdiom;
 
       if (isNegated) {
         findings.push({
@@ -663,6 +676,27 @@ function runTier2ClaimVerification(text: string): {
           },
         });
       }
+    } else if (claim.claimType === 'unsupported_metric') {
+      // General unverified numerical assertions (subscribers, users, downloads) not grounded in Brand Vault
+      findings.push({
+        id: `T2-CLAIM-${i}`,
+        category: 'claim_verification',
+        verdict: 'UNVERIFIED',
+        reasonCode: 'MISSING_SOURCE',
+        matchedText: claim.text,
+        startIndex: claim.startIndex,
+        endIndex: claim.endIndex,
+        severity: 'warning',
+        explanation: `Unverified Business Metric. Draft asserts "${claim.text}", but no approved ground truth exists in the active Brand Vault for this metric. The system abstains from granting approval.`,
+        guidelineTitle: 'Unverified Metric Assertion',
+        guidelineCitation: 'Corporate Trademark Identity Handbook §4.2',
+        authorityLevel: 2,
+        rewrites: {
+          direct: '420+ global enterprise brands (audited customer count)',
+          punchy: 'trusted by 420+ industry leaders',
+          conservative: 'over 420 active enterprise customer deployments',
+        },
+      });
     }
   }
 

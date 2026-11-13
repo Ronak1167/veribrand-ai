@@ -273,12 +273,12 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Tolerance: 400 - 450)
+    # 2. Customer counts (Strict accuracy: Ground truth is 420+ active enterprise customers)
     cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        is_accurate = (claimed_num >= 400 and claimed_num <= 450)
+        is_accurate = (claimed_num == 420)
         if is_accurate:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",
@@ -474,12 +474,15 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 5. Security & Certifications (with Negation Handling)
-    soc_matches = list(re.finditer(r"\b(?:(?:not|never|no|without)\s+)?SOC 2(?: Type II)?\b", text, re.IGNORECASE))
+    # 5. Security & Certifications (with Scope-Aware Negation Handling)
+    soc_matches = list(re.finditer(r"\b(?:(?:not(?:\s+only)?|never|no|without)\s+)?SOC 2(?: Type II)?\b", text, re.IGNORECASE))
     for m in soc_matches:
         metric = VERIFIED_METRICS["MTR-002"]
-        preceding = text[max(0, m.start() - 25):m.start()].lower()
-        is_negated = "not" in preceding or "never" in preceding or "without" in preceding or "not" in m.group(0).lower()
+        preceding = text[max(0, m.start() - 30):m.start()].lower()
+        full_context = f"{preceding} {m.group(0).lower()}"
+        is_affirmative_idiom = bool(re.search(r"\bnot\s+(?:only|just|merely)\b", full_context))
+        has_negation = bool(re.search(r"\b(not|never|neither|no|non|unverified|without|lack|lacks)\b", full_context))
+        is_negated = has_negation and not is_affirmative_idiom
 
         if is_negated:
             findings.append({
@@ -600,6 +603,29 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "direct": "turnaround reduction by up to 75%",
                 "punchy": "slashing routine reviews by up to 75%",
                 "conservative": "projected review turnaround reduction of up to 75%"
+            }
+        })
+
+    # 8. Unsupported business metrics (subscribers, users, downloads)
+    unsupp_matches = list(re.finditer(r"(?:over|more than|supports|with|have)?\s*([0-9,]+)\+?\s+(?:paying subscribers|subscribers|active users|daily users|monthly active users|registered users|downloads|client accounts)\b", text, re.IGNORECASE))
+    for m in unsupp_matches:
+        findings.append({
+            "id": f"PY-T2-UNSUPP-{m.start()}",
+            "category": "claim_verification",
+            "verdict": "UNVERIFIED",
+            "reason_code": "MISSING_SOURCE",
+            "matched_text": m.group(0).strip(),
+            "start_index": m.start(),
+            "end_index": m.end(),
+            "severity": "warning",
+            "explanation": f"Unverified Business Metric '{m.group(0).strip()}'. No approved ground truth exists in Brand Vault. System abstains from granting approval.",
+            "guideline_title": "Unverified Metric Assertion",
+            "guideline_citation": "Corporate Trademark Identity Handbook §4.2",
+            "authority_level": 2,
+            "rewrites": {
+                "direct": "420+ global enterprise brands (audited customer count)",
+                "punchy": "trusted by 420+ industry leaders",
+                "conservative": "over 420 active enterprise customer accounts"
             }
         })
 

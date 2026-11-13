@@ -35,4 +35,24 @@ assert any(f['verdict'] == 'CONFLICT' and 'security' in f['guidelineTitle'].lowe
 assert any('pricing' in f['guidelineTitle'].lower() for f in d2['findings']), "Unverified pricing flag missing"
 print("-> TEST 2 PASSED: Adversarial prompt correctly rejected and penalized!")
 
-print("\nALL VERIFICATION TESTS PASSED CLEANLY!")
+# Test 3: Specific Customer Count Edge Case ("400 enterprise customers" must NOT be falsely verified!)
+cust_400_text = "We have 400 enterprise customers."
+d3 = test_payload("TEST 3: CUSTOMER COUNT 400 DISCREPANCY", cust_400_text)
+assert any(f['verdict'] == 'CONFLICT' and 'customer' in f['guidelineTitle'].lower() for f in d3['findings']), "Expected CONFLICT on 400 customers"
+print("-> TEST 3 PASSED: Inaccurate 400 customer count correctly flagged as CONFLICT!")
+
+# Test 4: Affirmative Idiom Scope ("not only SOC 2" must NOT be treated as negated conflict!)
+not_only_text = "We are not only SOC 2 Type II certified, but also enterprise-ready."
+d4 = test_payload("TEST 4: AFFIRMATIVE IDIOM ('not only SOC 2')", not_only_text)
+assert any(f['verdict'] == 'VERIFIED' and 'security' in f['guidelineTitle'].lower() for f in d4['findings']), "Expected VERIFIED for 'not only SOC 2'"
+assert not any(f['verdict'] == 'CONFLICT' for f in d4['findings']), "False CONFLICT on 'not only SOC 2'"
+print("-> TEST 4 PASSED: Affirmative 'not only' scope correctly verified without false conflict!")
+
+# Test 5: Unsupported Business Metric ("2,000 paying subscribers" must NOT be silently ignored!)
+unsupp_text = "We have 2,000 paying subscribers."
+d5 = test_payload("TEST 5: UNSUPPORTED BUSINESS METRIC", unsupp_text)
+assert d5['complianceScore'] < 100, f"Expected <100, got {d5['complianceScore']}"
+assert any(f['verdict'] == 'UNVERIFIED' and 'unverified metric' in f['guidelineTitle'].lower() for f in d5['findings']), "Expected UNVERIFIED for 2,000 paying subscribers"
+print("-> TEST 5 PASSED: Unsupported assertion '2,000 paying subscribers' caught with model abstention!")
+
+print("\nALL 5 VERIFICATION TESTS PASSED CLEANLY!")
