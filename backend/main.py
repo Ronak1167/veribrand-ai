@@ -1,7 +1,8 @@
 # VeriBrand AI — Python FastAPI Service
-# High-Throughput REST API for Enterprise Brand Governance
+# High-Throughput Async REST API for Enterprise Brand Governance
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from models import AuditRequest, AuditResponse, PaletteAnalysisResponse
 from engine import audit_document, VERIFIED_METRICS, BRAND_RULES, calculate_wcag_contrast
@@ -12,26 +13,32 @@ app = FastAPI(
     version="1.0.0-round2-build"
 )
 
+# Explicit CORS configuration for local development and production deployments
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+    ],
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
 @app.get("/health")
-def health_check():
+async def health_check():
     return {
         "status": "healthy",
         "service": "VeriBrand AI Python Engine",
         "round": "Round 2 Build",
-        "team": "Team Deccans",
+        "team": "Team Deccans (VeriBrand AI)",
         "hackathon": "CodeNova India 2026 (Inkloom AI Track)"
     }
 
 @app.post("/api/audit", response_model=AuditResponse)
-def audit_content_endpoint(req: AuditRequest):
+async def audit_content_endpoint(req: AuditRequest):
     try:
         result = audit_document(req.text, req.channel)
         return result
@@ -39,7 +46,7 @@ def audit_content_endpoint(req: AuditRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/vault")
-def get_vault_data():
+async def get_vault_data():
     return {
         "metrics_count": len(VERIFIED_METRICS),
         "rules_count": len(BRAND_RULES),
@@ -48,7 +55,7 @@ def get_vault_data():
     }
 
 @app.get("/api/vision/contrast")
-def get_contrast_ratio(fg: str = "#4F46E5", bg: str = "#FFFFFF"):
+async def get_contrast_ratio(fg: str = "#4F46E5", bg: str = "#FFFFFF"):
     ratio = calculate_wcag_contrast(fg, bg)
     return {
         "foreground": fg,
