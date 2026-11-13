@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { EditorView } from '@/components/EditorView';
 import { ReviewerView } from '@/components/ReviewerView';
@@ -18,63 +18,107 @@ import {
   INITIAL_AMBIGUITY_METRICS,
 } from '@/lib/engine/brand-vault-data';
 
+const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
+  {
+    id: 'SUB-INIT-01',
+    title: 'Q4 Product Launch Press Release',
+    channel: 'press_release',
+    creatorName: 'Elena Rostova (Senior Copywriter)',
+    submittedAt: '2026-11-13T09:00:00.000Z',
+    status: 'pending_review',
+    originalText: PRESET_DRAFTS[1].content,
+    currentText: PRESET_DRAFTS[1].content,
+    auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
+    comments: [
+      {
+        id: 'C-1',
+        author: 'Elena Rostova',
+        role: 'Creator',
+        text: 'Draft calibrated for enterprise buyers. The trademark phrasing and 99.9% uptime have been validated.',
+        timestamp: '2026-11-13T09:15:00.000Z',
+      },
+    ],
+  },
+  {
+    id: 'SUB-INIT-02',
+    title: 'Global Social Ad Campaign',
+    channel: 'linkedin',
+    creatorName: 'Marcus Vance (Growth Lead)',
+    submittedAt: '2026-11-13T08:00:00.000Z',
+    status: 'approved',
+    originalText: PRESET_DRAFTS[2].content,
+    currentText: PRESET_DRAFTS[2].content,
+    auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
+    sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
+    signedOffAt: '2026-11-13T08:30:00.000Z',
+    signedOffBy: 'Sarah Chen (Brand Guardian)',
+    comments: [
+      {
+        id: 'C-2',
+        author: 'Sarah Chen',
+        role: 'Brand Reviewer',
+        text: 'Clean audit pass. Approved for public syndication.',
+        timestamp: '2026-11-13T08:30:00.000Z',
+      },
+    ],
+  },
+];
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
   const [channel, setChannel] = useState<ChannelType>('linkedin');
   const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
   const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(INITIAL_SUBMISSIONS);
+  const [isInitialized, setIsInitialized] = useState<boolean>(false);
+
+  // Load persistent state from localStorage on client mount
+  useEffect(() => {
+    try {
+      const savedSubs = localStorage.getItem('veribrand_submissions_v2');
+      if (savedSubs) {
+        setSubmissions(JSON.parse(savedSubs));
+      }
+      const savedMetrics = localStorage.getItem('veribrand_ambiguity_metrics_v2');
+      if (savedMetrics) {
+        setAmbiguityMetrics(JSON.parse(savedMetrics));
+      }
+      const savedContent = localStorage.getItem('veribrand_editor_content_v2');
+      if (savedContent) {
+        setContent(savedContent);
+      }
+    } catch {
+      // Fallback cleanly if localStorage is restricted or corrupted
+    }
+    setIsInitialized(true);
+  }, []);
+
+  // Sync state changes to localStorage
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('veribrand_submissions_v2', JSON.stringify(submissions));
+    } catch {}
+  }, [submissions, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('veribrand_ambiguity_metrics_v2', JSON.stringify(ambiguityMetrics));
+    } catch {}
+  }, [ambiguityMetrics, isInitialized]);
+
+  useEffect(() => {
+    if (!isInitialized) return;
+    try {
+      localStorage.setItem('veribrand_editor_content_v2', content);
+    } catch {}
+  }, [content, isInitialized]);
 
   // Compute live audit in real time
   const auditResult = useMemo(() => {
     return auditContent(content, channel);
   }, [content, channel]);
-
-  // Initial submissions list so judges can test the Reviewer Dashboard immediately
-  const [submissions, setSubmissions] = useState<ReviewSubmission[]>([
-    {
-      id: 'SUB-INIT-01',
-      title: 'Q4 Product Launch Press Release',
-      channel: 'press_release',
-      creatorName: 'Elena Rostova (Senior Copywriter)',
-      submittedAt: '2026-11-13T09:00:00.000Z',
-      status: 'pending_review',
-      originalText: PRESET_DRAFTS[1].content,
-      currentText: PRESET_DRAFTS[1].content,
-      auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
-      comments: [
-        {
-          id: 'C-1',
-          author: 'Elena Rostova',
-          role: 'Creator',
-          text: 'Draft calibrated for enterprise buyers. The trademark phrasing and 99.9% uptime have been validated.',
-          timestamp: '2026-11-13T09:15:00.000Z',
-        },
-      ],
-    },
-    {
-      id: 'SUB-INIT-02',
-      title: 'Global Social Ad Campaign',
-      channel: 'linkedin',
-      creatorName: 'Marcus Vance (Growth Lead)',
-      submittedAt: '2026-11-13T08:00:00.000Z',
-      status: 'approved',
-      originalText: PRESET_DRAFTS[2].content,
-      currentText: PRESET_DRAFTS[2].content,
-      auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
-      sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
-      signedOffAt: '2026-11-13T08:30:00.000Z',
-      signedOffBy: 'Sarah Chen (Brand Guardian)',
-      comments: [
-        {
-          id: 'C-2',
-          author: 'Sarah Chen',
-          role: 'Brand Reviewer',
-          text: 'Clean audit pass. Approved for public syndication.',
-          timestamp: '2026-11-13T08:30:00.000Z',
-        },
-      ],
-    },
-  ]);
 
   // Handle Loading Preset Demo Scenarios
   const handleSelectPreset = (presetId: string) => {
@@ -211,6 +255,35 @@ export default function Home() {
     );
   };
 
+  // Add Comment to Review Thread
+  const handleAddComment = (
+    submissionId: string,
+    commentText: string,
+    author: string,
+    role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel'
+  ) => {
+    setSubmissions((prev) =>
+      prev.map((sub) => {
+        if (sub.id === submissionId) {
+          return {
+            ...sub,
+            comments: [
+              ...sub.comments,
+              {
+                id: `COM-${Date.now()}`,
+                author,
+                role,
+                text: commentText,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        return sub;
+      })
+    );
+  };
+
   const pendingCount = submissions.filter((s) => s.status === 'pending_review').length;
 
   return (
@@ -243,6 +316,7 @@ export default function Home() {
             submissions={submissions}
             onApproveSubmission={handleApproveSubmission}
             onRequestChanges={handleRequestChanges}
+            onAddComment={handleAddComment}
           />
         )}
 

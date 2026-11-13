@@ -32,7 +32,7 @@ In our Round 1 proposal, we committed to delivering three primary architectural 
 
 | Named Improvement | Technical Architecture | User & Enterprise Value |
 |---|---|---|
-| **1. Evidence-Backed Claim Verification Engine** | Grounded Tri-State Model (`VERIFIED`, `CONFLICT`, `UNVERIFIED`). Features programmatic evidence gating and mandatory model abstention (unverified metrics trigger `OUTDATED` or `MISSING_SOURCE`). | Prevents regulatory false-advertising fines (FTC/ASCI) and eliminates fabricated claims. |
+| **1. Evidence-Backed Claim Verification Engine** | Grounded Tri-State Model (`VERIFIED`, `CONFLICT`, `UNVERIFIED`). Features programmatic evidence gating against audited Brand Vault ground truth and mandatory abstention (unverified metrics trigger `OUTDATED` or `MISSING_SOURCE`). | Prevents regulatory false-advertising fines (FTC/ASCI) and eliminates fabricated claims. |
 | **2. Intent-Preserving Explainable Corrections** | Real-time redlines paired with exact rule citations and **3 Tone-Matched Alternatives** (*Direct*, *Punchy*, *Conservative*) with 1-click replacement. | Protects creative voice while slashing routine review cycle turnaround by up to 75%. |
 | **3. Reverse Brand Intelligence & Ambiguity Feedback Loop** | Heatmap matrix tracking review redlines, creator appeals, and override ratios across 8 core brand rules. | Closes the loop for CMOs and Brand Directors: identifies ambiguously worded guidelines rather than blaming writers. |
 
@@ -46,7 +46,7 @@ In our Round 1 proposal, we committed to delivering three primary architectural 
           ┌───────────────────────┴───────────────────────┐
           ▼                                               ▼
    [ TIER-1 FILTER ]                             [ TIER-2 CLAIM RAG ]
-Aho-Corasick Automaton (<10ms)                Hybrid Lexical + Dense RAG
+Aho-Corasick Automaton (<1ms)                Hybrid Lexical + Dense RAG
   • Trademark Casing Rules                      • Factual Assertion Extraction
   • Deprecated Jargon Terminology               • Audited Brand Vault Metrics
   • Non-Brand Hex Swatches (#FF0033)            • Tri-State Verification
@@ -104,7 +104,7 @@ FastAPI Swagger docs available at **[http://localhost:8000/docs](http://localhos
 ### 3. Run the Automated Test Suite
 ```bash
 cd veribrand-ai/backend
-python test_engine.py
+python test_adversarial.py
 ```
 
 ---

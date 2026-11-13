@@ -23,12 +23,14 @@ interface ReviewerViewProps {
   submissions: ReviewSubmission[];
   onApproveSubmission: (submissionId: string, sha256Hash: string, reviewerName: string) => void;
   onRequestChanges: (submissionId: string, commentText: string) => void;
+  onAddComment?: (submissionId: string, commentText: string, author: string, role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel') => void;
 }
 
 export const ReviewerView: React.FC<ReviewerViewProps> = ({
   submissions,
   onApproveSubmission,
   onRequestChanges,
+  onAddComment,
 }) => {
   const [selectedId, setSelectedId] = useState<string>(
     submissions[0]?.id || ''
@@ -267,28 +269,20 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                     placeholder="Add feedback note or approval justification..."
                     className="flex-1 bg-slate-950 text-xs text-slate-100 border border-slate-700 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' && newComment.trim()) {
-                        activeItem.comments.push({
-                          id: `COM-${Date.now()}`,
-                          author: reviewerName,
-                          role: 'Brand Reviewer',
-                          text: newComment.trim(),
-                          timestamp: new Date().toISOString(),
-                        });
+                      if (e.key === 'Enter' && newComment.trim() && activeItem) {
+                        if (onAddComment) {
+                          onAddComment(activeItem.id, newComment.trim(), reviewerName, 'Brand Reviewer');
+                        }
                         setNewComment('');
                       }
                     }}
                   />
                   <button
                     onClick={() => {
-                      if (newComment.trim()) {
-                        activeItem.comments.push({
-                          id: `COM-${Date.now()}`,
-                          author: reviewerName,
-                          role: 'Brand Reviewer',
-                          text: newComment.trim(),
-                          timestamp: new Date().toISOString(),
-                        });
+                      if (newComment.trim() && activeItem) {
+                        if (onAddComment) {
+                          onAddComment(activeItem.id, newComment.trim(), reviewerName, 'Brand Reviewer');
+                        }
                         setNewComment('');
                       }
                     }}

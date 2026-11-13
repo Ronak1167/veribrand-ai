@@ -1,5 +1,5 @@
 // VeriBrand AI — Core Two-Tier Audit Engine
-// Tier-1: Aho-Corasick Deterministic Filter (<50ms)
+// Tier-1: Aho-Corasick Deterministic Filter (<10ms)
 // Tier-2: Grounded Hybrid Claim Verifier (Tri-State: VERIFIED, CONFLICT, UNVERIFIED)
 
 import {
@@ -99,6 +99,18 @@ function runTier1DeterministicScan(text: string): {
       const rule = data.rule;
       const originalSlice = text.slice(m.start, m.end);
 
+      // P0 BUG FIX: Check if the text at this location is ALREADY correctly written!
+      // If the original text is already "Inkloom AI" or "VeriBrand AI", do NOT flag it!
+      if (rule.category === 'terminology') {
+        if (originalSlice === rule.approvedAlternative) {
+          continue;
+        }
+        const candidateFull = text.slice(m.start, m.start + rule.approvedAlternative.length);
+        if (candidateFull === rule.approvedAlternative) {
+          continue;
+        }
+      }
+
       findings.push({
         id: `T1-R-${i}-${m.start}`,
         category: rule.category,
@@ -145,8 +157,19 @@ function runTier1DeterministicScan(text: string): {
     }
   }
 
-  const latencyMs = Math.round((performance.now() - start) * 10) / 10;
-  return { findings, latencyMs };
+  // De-duplicate overlapping findings (prefer longer matches)
+  const uniqueFindings = findings.filter((f, idx) => {
+    return !findings.some(
+      (other, oIdx) =>
+        oIdx !== idx &&
+        other.startIndex <= f.startIndex &&
+        other.endIndex >= f.endIndex &&
+        other.matchedText.length > f.matchedText.length
+    );
+  });
+
+  const latencyMs = Math.round((performance.now() - start) * 100) / 100;
+  return { findings: uniqueFindings, latencyMs };
 }
 
 // Tier-2 Claim Assertion Parser & Verifier
@@ -154,7 +177,7 @@ interface ExtractedClaim {
   text: string;
   startIndex: number;
   endIndex: number;
-  claimType: 'uptime' | 'customers' | 'revenue' | 'pricing' | 'survey' | 'retention' | 'security';
+  claimType: 'uptime' | 'customers' | 'revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround';
   rawNumber?: number;
 }
 
@@ -175,8 +198,8 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 2. Customer counts (e.g. "over 1,500 enterprise customers", "420+ enterprise organizations")
-  const customerRegex = /(?:over|more than|supports)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)/gi;
+  // 2. Customer counts (e.g. "over 1,500 enterprise customers", "100 enterprise customers", "420+ enterprise organizations")
+  const customerRegex = /(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)/gi;
   while ((match = customerRegex.exec(text)) !== null) {
     const rawDigits = match[1].replace(/,/g, '');
     claims.push({
@@ -200,15 +223,15 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 4. Pricing claims (e.g. "$49/mo", "$79/mo")
-  const pricingRegex = /\$([0-9]+)\s*\/\s*(?:mo|month)/gi;
+  // 4. General Pricing claims (e.g. "$49/mo", "$79/mo", "$99/mo")
+  const pricingRegex = /\$([0-9.]+)\s*\/\s*(?:mo|month)/gi;
   while ((match = pricingRegex.exec(text)) !== null) {
     claims.push({
       text: match[0],
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'pricing',
-      rawNumber: parseInt(match[1], 10),
+      rawNumber: parseFloat(match[1]),
     });
   }
 
@@ -224,8 +247,20 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 6. Security certs (e.g. "SOC 2 Type II")
-  const socRegex = /\bSOC 2(?: Type II)?\b/gi;
+  // 6. Turnaround reduction claims (e.g. "turnaround by up to 75%", "75% turnaround")
+  const turnaroundRegex = /(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)/gi;
+  while ((match = turnaroundRegex.exec(text)) !== null) {
+    claims.push({
+      text: match[0],
+      startIndex: match.index,
+      endIndex: match.index + match[0].length,
+      claimType: 'turnaround',
+      rawNumber: 75,
+    });
+  }
+
+  // 7. Security certs (e.g. "SOC 2 Type II", "not SOC 2 Type II certified")
+  const socRegex = /\b(?:(?:not|never|no|without)\s+)?SOC 2(?: Type II)?\b/gi;
   while ((match = socRegex.exec(text)) !== null) {
     claims.push({
       text: match[0],
@@ -308,7 +343,9 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      const isAccurate = (claim.rawNumber || 0) <= 450;
+      // P0 BUG FIX: Only verify if the number actually matches 420+ (tolerance: 400-450)
+      const count = claim.rawNumber || 0;
+      const isAccurate = count >= 400 && count <= 450;
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,
@@ -351,7 +388,7 @@ function runTier2ClaimVerification(text: string): {
           startIndex: claim.startIndex,
           endIndex: claim.endIndex,
           severity: 'critical',
-          explanation: `Fabricated metric. Draft asserts "${claim.text}", but verified disclosure documents state ${metric.approvedValue}. Exaggerating customer counts violates FTC guidelines.`,
+          explanation: `Inaccurate Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure verifies ${metric.approvedValue}. Quoting unverified customer numbers violates regulatory guidelines.`,
           guidelineTitle: 'Customer Count Discrepancy',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,
@@ -421,10 +458,31 @@ function runTier2ClaimVerification(text: string): {
         });
       }
     } else if (claim.claimType === 'pricing') {
-      const isOutdated = claim.rawNumber === 49;
-      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-007')!;
+      const price = claim.rawNumber || 0;
+      const metricOutdated = VERIFIED_METRICS.find((m) => m.id === 'MTR-007')!;
 
-      if (isOutdated) {
+      if (price === 79) {
+        // Current approved standard pricing
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'VERIFIED',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'success',
+          explanation: 'Programmatically verified against current approved Product Pricing Schedule FY26 ($79/mo Starter tier).',
+          guidelineTitle: 'Approved Pricing Schedule',
+          guidelineCitation: 'Product Pricing Schedule FY26 v2.0 — Standard Tier',
+          authorityLevel: 1,
+          rewrites: {
+            direct: '$79/mo',
+            punchy: '$79/mo standard plan',
+            conservative: '$79/month billed annually',
+          },
+        });
+      } else if (price === 49) {
+        // Discontinued legacy pricing
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -436,11 +494,11 @@ function runTier2ClaimVerification(text: string): {
           severity: 'warning',
           explanation: `Expired Pricing Metric. The $49/mo legacy starter plan was discontinued on 2026-09-01 and superseded by the $79/mo Starter tier. Advertising discontinued pricing risks consumer dispute liability.`,
           guidelineTitle: 'Discontinued Pricing Schedule',
-          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          guidelineCitation: `${metricOutdated.sourceDoc} — ${metricOutdated.section}`,
           authorityLevel: 2,
           evidence: {
-            metricId: metric.id,
-            metricName: metric.metricName,
+            metricId: metricOutdated.id,
+            metricName: metricOutdated.metricName,
             approvedValue: '$79/mo (Current)',
             sourceDocument: 'Product Pricing Schedule FY26 v2.0',
             sectionCitation: 'Pricing Appendix A',
@@ -452,6 +510,27 @@ function runTier2ClaimVerification(text: string): {
             direct: '$79/mo',
             punchy: '$79/mo with full enterprise compliance',
             conservative: '$79/month under current standard tier terms',
+          },
+        });
+      } else {
+        // P0 BUG FIX: Any other unapproved price (e.g. $99/mo) must be flagged!
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unapproved Pricing Quote. Quoting "${claim.text}" has no verified source in the active Brand Vault pricing schedule (Approved Starter tier is $79/mo). Model abstains from granting approval.`,
+          guidelineTitle: 'Unverified Pricing Tier',
+          guidelineCitation: 'Product Pricing Schedule FY26 v2.0 — Section 2',
+          authorityLevel: 2,
+          rewrites: {
+            direct: '$79/mo (Approved Standard Tier)',
+            punchy: '$79/mo with full enterprise compliance',
+            conservative: '$79/month according to current approved pricing',
           },
         });
       }
@@ -485,8 +564,8 @@ function runTier2ClaimVerification(text: string): {
           conservative: '94.2% client retention rate audited by KPMG',
         },
       });
-    } else if (claim.claimType === 'security') {
-      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
+    } else if (claim.claimType === 'turnaround') {
+      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-005')!;
       findings.push({
         id: `T2-CLAIM-${i}`,
         category: 'claim_verification',
@@ -495,30 +574,100 @@ function runTier2ClaimVerification(text: string): {
         startIndex: claim.startIndex,
         endIndex: claim.endIndex,
         severity: 'success',
-        explanation: `Valid security attestation from A-LIGN Annual Security Attestation.`,
-        guidelineTitle: 'Security Compliance Certification',
+        explanation: `Verified against official projected operational benchmarks (${metric.approvedValue}).`,
+        guidelineTitle: 'Review Turnaround Target',
         guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
-        authorityLevel: 1,
+        authorityLevel: 2,
         evidence: {
           metricId: metric.id,
           metricName: metric.metricName,
           approvedValue: metric.approvedValue,
           sourceDocument: metric.sourceDoc,
           sectionCitation: metric.section,
-          validityPeriod: '2026-2027',
-          lastAuditedDate: '2026-06-30',
+          validityPeriod: 'Round 2 Operational Plan',
+          lastAuditedDate: '2026-11-01',
           status: 'active',
         },
         rewrites: {
-          direct: 'SOC 2 Type II certified',
-          punchy: 'rigorous SOC 2 Type II compliance',
-          conservative: 'attested SOC 2 Type II security architecture',
+          direct: 'turnaround reduction by up to 75%',
+          punchy: 'slashing routine reviews by up to 75%',
+          conservative: 'projected review turnaround reduction of up to 75%',
         },
       });
+    } else if (claim.claimType === 'security') {
+      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
+
+      // P0 BUG FIX: Check for negation in surrounding context!
+      const preceding = text.slice(Math.max(0, claim.startIndex - 25), claim.startIndex).toLowerCase();
+      const isNegated = /\b(not|never|neither|no|non|unverified|without|lack|lacks)\b/i.test(preceding) ||
+                        claim.text.toLowerCase().includes('not') ||
+                        claim.text.toLowerCase().includes('never');
+
+      if (isNegated) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Negated Security Attestation. Copy asserts "${claim.text}", which directly contradicts the company's verified A-LIGN SOC 2 Type II certification.`,
+          guidelineTitle: 'Security Compliance Contradiction',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: {
+            metricId: metric.id,
+            metricName: metric.metricName,
+            approvedValue: metric.approvedValue,
+            sourceDocument: metric.sourceDoc,
+            sectionCitation: metric.section,
+            validityPeriod: '2026-2027',
+            lastAuditedDate: '2026-06-30',
+            status: 'active',
+          },
+          rewrites: {
+            direct: 'backed by SOC 2 Type II security certification',
+            punchy: 'attested SOC 2 Type II compliance',
+            conservative: 'holding active SOC 2 Type II certification',
+          },
+        });
+      } else {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'VERIFIED',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'success',
+          explanation: `Valid security attestation from A-LIGN Annual Security Attestation.`,
+          guidelineTitle: 'Security Compliance Certification',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: {
+            metricId: metric.id,
+            metricName: metric.metricName,
+            approvedValue: metric.approvedValue,
+            sourceDocument: metric.sourceDoc,
+            sectionCitation: metric.section,
+            validityPeriod: '2026-2027',
+            lastAuditedDate: '2026-06-30',
+            status: 'active',
+          },
+          rewrites: {
+            direct: 'SOC 2 Type II certified',
+            punchy: 'rigorous SOC 2 Type II compliance',
+            conservative: 'attested SOC 2 Type II security architecture',
+          },
+        });
+      }
     }
   }
 
-  const latencyMs = Math.round((performance.now() - start) * 10) / 10 + 65; // realistic async retrieval time simulation
+  // P0 FIX: Report genuine measured execution latency (no artificial delays)
+  const latencyMs = Math.round((performance.now() - start) * 100) / 100;
   return { findings, latencyMs };
 }
 
@@ -566,8 +715,9 @@ export function auditContent(
     documentId: 'DOC-AUDIT-LIVE',
     channel,
     complianceScore: score,
-    tier1LatencyMs: Math.max(5, t1.latencyMs),
-    tier2LatencyMs: Math.max(45, t2.latencyMs),
+    // P0 FIX: Honest measured latency
+    tier1LatencyMs: Math.max(0.1, t1.latencyMs),
+    tier2LatencyMs: Math.max(0.1, t2.latencyMs),
     findings: allFindings,
     metricsAuditedCount: VERIFIED_METRICS.length,
     claimsVerifiedCount: verifiedCount,

@@ -1,12 +1,13 @@
 # VeriBrand AI — Python Multi-Modal Verification Engine
-# Tier-1: In-Memory Multi-Pattern Rule Matcher
-# Tier-2: Grounded Hybrid Claim Verifier (Tri-State)
+# Tier-1: In-Memory Multi-Pattern Rule Matcher (<1ms)
+# Tier-2: Grounded Hybrid Claim Verifier (Tri-State: VERIFIED, CONFLICT, UNVERIFIED)
 # Vision: OpenCV K-Means Color Palette & WCAG 2.1 AA Contrast Calculator
 
 import time
 import re
 from typing import List, Dict, Any, Tuple
 import numpy as np
+import cv2
 
 # Ground Truth Metrics
 VERIFIED_METRICS = {
@@ -87,6 +88,17 @@ BRAND_RULES = [
         "explanation": "Corporate naming policy mandates capitalized 'Inkloom AI'."
     },
     {
+        "id": "RULE-TM-02",
+        "patterns": ["veribrand", "verybrand", "veri brand"],
+        "approved": "VeriBrand AI",
+        "title": "Product Naming: VeriBrand AI",
+        "category": "terminology",
+        "severity": "critical",
+        "authority": 1,
+        "citation": "Product Architecture Catalog §2.4",
+        "explanation": "Product name must be camel-cased as 'VeriBrand AI'."
+    },
+    {
         "id": "RULE-TERM-03",
         "patterns": ["artificial intelligence wizard", "ai wizard", "magic algorithm"],
         "approved": "Explainable Compliance Co-Pilot",
@@ -138,12 +150,19 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 prev_char = lower_text[idx - 1] if idx > 0 else ' '
                 next_char = lower_text[idx + len(pattern)] if idx + len(pattern) < len(lower_text) else ' '
                 if not prev_char.isalnum() and not next_char.isalnum():
+                    # P0 BUG FIX: Check if original slice is ALREADY properly capitalized
+                    original_slice = text[idx:idx + len(pattern)]
+                    candidate_full = text[idx:idx + len(rule["approved"])]
+                    if original_slice == rule["approved"] or candidate_full == rule["approved"]:
+                        pos = idx + len(pattern)
+                        continue
+
                     findings.append({
                         "id": f"PY-T1-{rule['id']}-{idx}",
                         "category": rule["category"],
                         "verdict": "SUGGESTION",
                         "reason_code": "FORBIDDEN_TERM" if rule["category"] == "terminology" else "HYPERBOLIC_SUPERLATIVE",
-                        "matched_text": text[idx:idx + len(pattern)],
+                        "matched_text": original_slice,
                         "start_index": idx,
                         "end_index": idx + len(pattern),
                         "severity": rule["severity"],
@@ -184,14 +203,14 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    latency = round((time.perf_counter() - start) * 1000, 2)
+    latency = round((time.perf_counter() - start) * 1000, 3)
     return findings, latency
 
 def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
     start = time.perf_counter()
     findings = []
 
-    # Uptime SLA claims
+    # 1. Uptime SLA claims
     uptime_matches = list(re.finditer(r"\b(99(?:\.\d+)?%)\s+(?:uptime|availability|SLA)\b", text, re.IGNORECASE))
     for m in uptime_matches:
         claimed_num = float(m.group(1).replace('%', ''))
@@ -254,12 +273,13 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # Customer counts
-    cust_matches = list(re.finditer(r"(?:over|more than|supports)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
+    # 2. Customer counts (Tolerance: 400 - 450)
+    cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        if claimed_num <= 450:
+        is_accurate = (claimed_num >= 400 and claimed_num <= 450)
+        if is_accurate:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",
                 "category": "claim_verification",
@@ -297,7 +317,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "start_index": m.start(),
                 "end_index": m.end(),
                 "severity": "critical",
-                "explanation": f"Fabricated metric. Draft asserts '{m.group(0).strip()}', but audited customer disclosures verify {metric['approved']}.",
+                "explanation": f"Discrepancy in customer count. Quoting '{m.group(0).strip()}' contradicts audited disclosure ({metric['approved']}).",
                 "guideline_title": "Customer Count Discrepancy",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
@@ -317,7 +337,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # Revenue / ARR
+    # 3. Revenue / ARR
     rev_matches = list(re.finditer(r"\$([0-9.]+)\s*(?:M|million)\s*(?:in annual revenue|ARR|revenue)?", text, re.IGNORECASE))
     for m in rev_matches:
         claimed_num = float(m.group(1))
@@ -380,14 +400,33 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # Pricing ($49/mo outdated check)
-    price_matches = list(re.finditer(r"\$([0-9]+)\s*\/\s*(?:mo|month)", text, re.IGNORECASE))
+    # 4. General Pricing ($79 approved, $49 outdated, any other price unverified)
+    price_matches = list(re.finditer(r"\$([0-9.]+)\s*\/\s*(?:mo|month)", text, re.IGNORECASE))
     for m in price_matches:
-        claimed_num = int(m.group(1))
+        claimed_num = float(m.group(1))
         metric = VERIFIED_METRICS["MTR-007"]
-        if claimed_num == 49:
+        if claimed_num == 79.0:
             findings.append({
-                "id": f"PY-T2-PRICE-{m.start()}",
+                "id": f"PY-T2-PRICE-VER-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "VERIFIED",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "success",
+                "explanation": "Verified against approved Product Pricing Schedule FY26 ($79/mo Starter tier).",
+                "guideline_title": "Approved Pricing Schedule",
+                "guideline_citation": "Product Pricing Schedule FY26 v2.0",
+                "authority_level": 1,
+                "rewrites": {
+                    "direct": "$79/mo",
+                    "punchy": "$79/mo standard plan",
+                    "conservative": "$79/month billed annually"
+                }
+            })
+        elif claimed_num == 49.0:
+            findings.append({
+                "id": f"PY-T2-PRICE-OUT-{m.start()}",
                 "category": "claim_verification",
                 "verdict": "UNVERIFIED",
                 "reason_code": "OUTDATED",
@@ -414,8 +453,157 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "conservative": "$79/month under current standard tier terms"
                 }
             })
+        else:
+            findings.append({
+                "id": f"PY-T2-PRICE-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unverified Pricing Quote '{m.group(0)}'. No matching price schedule exists in the active Brand Vault.",
+                "guideline_title": "Unverified Pricing Tier",
+                "guideline_citation": "Product Pricing Schedule FY26 v2.0",
+                "authority_level": 2,
+                "rewrites": {
+                    "direct": "$79/mo (Approved Standard Tier)",
+                    "punchy": "$79/mo standard plan",
+                    "conservative": "$79/month standard tier"
+                }
+            })
 
-    latency = round((time.perf_counter() - start) * 1000, 2)
+    # 5. Security & Certifications (with Negation Handling)
+    soc_matches = list(re.finditer(r"\b(?:(?:not|never|no|without)\s+)?SOC 2(?: Type II)?\b", text, re.IGNORECASE))
+    for m in soc_matches:
+        metric = VERIFIED_METRICS["MTR-002"]
+        preceding = text[max(0, m.start() - 25):m.start()].lower()
+        is_negated = "not" in preceding or "never" in preceding or "without" in preceding or "not" in m.group(0).lower()
+
+        if is_negated:
+            findings.append({
+                "id": f"PY-T2-SOC-NEG-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"Negated Security Attestation '{m.group(0)}' directly contradicts company's active A-LIGN SOC 2 Type II certification.",
+                "guideline_title": "Security Compliance Contradiction",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": {
+                    "metric_id": "MTR-002",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "backed by SOC 2 Type II security certification",
+                    "punchy": "attested SOC 2 Type II compliance",
+                    "conservative": "holding active SOC 2 Type II certification"
+                }
+            })
+        else:
+            findings.append({
+                "id": f"PY-T2-SOC-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "VERIFIED",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "success",
+                "explanation": "Valid security attestation from A-LIGN Annual Security Attestation.",
+                "guideline_title": "Security Compliance Certification",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": {
+                    "metric_id": "MTR-002",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "SOC 2 Type II certified",
+                    "punchy": "rigorous SOC 2 Type II compliance",
+                    "conservative": "attested SOC 2 Type II security architecture"
+                }
+            })
+
+    # 6. Retention (94.2%)
+    ret_matches = list(re.finditer(r"\b(94(?:\.\d+)?%)\s+(?:enterprise client retention|enterprise retention)", text, re.IGNORECASE))
+    for m in ret_matches:
+        metric = VERIFIED_METRICS["MTR-001"]
+        findings.append({
+            "id": f"PY-T2-RET-{m.start()}",
+            "category": "claim_verification",
+            "verdict": "VERIFIED",
+            "matched_text": m.group(0),
+            "start_index": m.start(),
+            "end_index": m.end(),
+            "severity": "success",
+            "explanation": "Validated against KPMG Enterprise Quality Audit (94.2% retention).",
+            "guideline_title": "Verified Client Retention Metric",
+            "guideline_citation": f"{metric['source']} — {metric['citation']}",
+            "authority_level": 1,
+            "evidence": {
+                "metric_id": "MTR-001",
+                "metric_name": metric["name"],
+                "approved_value": metric["approved"],
+                "source_document": metric["source"],
+                "section_citation": metric["citation"],
+                "validity_period": metric["validity"],
+                "status": "active"
+            },
+            "rewrites": {
+                "direct": "94.2% enterprise retention",
+                "punchy": "industry-leading 94.2% enterprise retention",
+                "conservative": "94.2% client retention rate audited by KPMG"
+            }
+        })
+
+    # 7. Turnaround reduction (75%)
+    turn_matches = list(re.finditer(r"(?:turnaround (?:by )?up to 75%|up to 75% (?:routine )?review turnaround)", text, re.IGNORECASE))
+    for m in turn_matches:
+        metric = VERIFIED_METRICS["MTR-005"]
+        findings.append({
+            "id": f"PY-T2-TURN-{m.start()}",
+            "category": "claim_verification",
+            "verdict": "VERIFIED",
+            "matched_text": m.group(0),
+            "start_index": m.start(),
+            "end_index": m.end(),
+            "severity": "success",
+            "explanation": "Verified against projected operational targets.",
+            "guideline_title": "Review Turnaround Target",
+            "guideline_citation": f"{metric['source']} — {metric['citation']}",
+            "authority_level": 2,
+            "evidence": {
+                "metric_id": "MTR-005",
+                "metric_name": metric["name"],
+                "approved_value": metric["approved"],
+                "source_document": metric["source"],
+                "section_citation": metric["citation"],
+                "validity_period": metric["validity"],
+                "status": "active"
+            },
+            "rewrites": {
+                "direct": "turnaround reduction by up to 75%",
+                "punchy": "slashing routine reviews by up to 75%",
+                "conservative": "projected review turnaround reduction of up to 75%"
+            }
+        })
+
+    latency = round((time.perf_counter() - start) * 1000, 3)
     return findings, latency
 
 def audit_document(text: str, channel: str = "enterprise_web") -> Dict[str, Any]:
@@ -458,7 +646,30 @@ def audit_document(text: str, channel: str = "enterprise_web") -> Dict[str, Any]
         "timestamp": "2026-11-13T10:00:00.000Z"
     }
 
-# OpenCV K-Means Palette & WCAG 2.1 AA Contrast Extraction
+# Genuine OpenCV K-Means Palette & WCAG 2.1 AA Contrast Extraction
+def extract_palette_opencv(image_path: str = None, k: int = 5) -> List[str]:
+    """Uses OpenCV cv2.kmeans to cluster dominant colors from an image array."""
+    if image_path:
+        img = cv2.imread(image_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    else:
+        # Create a synthetic brand banner array for testing:
+        # 60% Brand Indigo (#4F46E5 = 79, 70, 229), 30% Cyan (#06B6D4 = 6, 182, 212), 10% White
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        img[:, :60] = [79, 70, 229]
+        img[:, 60:90] = [6, 182, 212]
+        img[:, 90:] = [255, 255, 255]
+
+    pixels = img.reshape((-1, 3)).astype(np.float32)
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 10, 1.0)
+    _, labels, centers = cv2.kmeans(pixels, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+
+    hex_codes = []
+    for center in centers.astype(int):
+        hex_code = "#{:02x}{:02x}{:02x}".format(center[0], center[1], center[2]).upper()
+        hex_codes.append(hex_code)
+    return hex_codes
+
 def calculate_wcag_contrast(hex1: str, hex2: str) -> float:
     def get_luminance(hex_str: str) -> float:
         hex_clean = hex_str.lstrip('#')
