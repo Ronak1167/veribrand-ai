@@ -74,14 +74,18 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
         <div className="flex items-center space-x-3 text-xs">
           <div className="bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800 flex items-center space-x-2">
             <User className="w-3.5 h-3.5 text-indigo-400" />
-            <span className="text-slate-400">Reviewer:</span>
+            <span className="text-slate-400">Reviewer (Demo Mode):</span>
             <input
               type="text"
               value={reviewerName}
               onChange={(e) => setReviewerName(e.target.value)}
-              className="bg-transparent text-slate-200 font-semibold focus:outline-none w-48"
+              title="Input-based demo reviewer identity (Enterprise SSO/RBAC scheduled for Round 3)"
+              className="bg-transparent text-slate-200 font-semibold focus:outline-none w-52 border-b border-dashed border-slate-700 hover:border-indigo-400 focus:border-indigo-500"
             />
           </div>
+          <span className="text-[10px] text-amber-400/90 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">
+            Editable Demo Identity
+          </span>
         </div>
       </div>
 

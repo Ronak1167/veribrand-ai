@@ -355,9 +355,11 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'customers') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
-      // Ground truth is "420+ active enterprise customer accounts" (lower bound >= 420 verified)
+      // Ground truth is "420+ active enterprise customer accounts"
+      // Organic growth between 420 and 999 is verified as legitimate lower-bound growth.
+      // Deficits (<420) or unverified exaggerations (>=1000, e.g. 1,500) trigger CONFLICT.
       const count = claim.rawNumber || 0;
-      const isAccurate = count >= 420;
+      const isAccurate = count >= 420 && count < 1000;
 
       const provenance: EvidenceProvenance = {
         metricId: metric.id,
@@ -391,6 +393,7 @@ function runTier2ClaimVerification(text: string): {
           },
         });
       } else {
+        const isExaggeration = count >= 1000;
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -400,7 +403,9 @@ function runTier2ClaimVerification(text: string): {
           startIndex: claim.startIndex,
           endIndex: claim.endIndex,
           severity: 'critical',
-          explanation: `Inaccurate Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure verifies ${metric.approvedValue}. Quoting unverified customer numbers violates regulatory guidelines.`,
+          explanation: isExaggeration
+            ? `Exaggerated Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure certifies ${metric.approvedValue} active accounts. Citing 1,000+ or 1,500+ represents a material exaggeration without official shareholder audit filings.`
+            : `Deficit Customer Count. Draft asserts "${claim.text}", but audited shareholder disclosure verifies at least ${metric.approvedValue} active accounts. Understating audited customer accounts violates regulatory reporting guidelines.`,
           guidelineTitle: 'Customer Count Discrepancy',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,

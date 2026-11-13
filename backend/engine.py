@@ -46,7 +46,8 @@ VERIFIED_METRICS = {
         "source": "Investor Q3 2026 Shareholder Disclosure",
         "citation": "Key Performance Indicators (KPIs)",
         "validity": "Q3 2026 Disclosure",
-        "status": "active"
+        "status": "active",
+        "tolerance": "Audited ground truth is 420+. Organic growth between 420 and 999 is verified. Under 420 is deficit (CONFLICT), and 1,000+ is unverified exaggeration (CONFLICT)."
     },
     "MTR-005": {
         "name": "Review Turnaround Reduction",
@@ -378,12 +379,12 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; lower bound >= 420 verified)
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customers; organic growth 420-999 verified; <420 or >=1000 is CONFLICT)
     cust_matches = list(re.finditer(r"(?:over|more than|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations)", text, re.IGNORECASE))
     for m in cust_matches:
         claimed_num = int(m.group(1).replace(',', ''))
         metric = VERIFIED_METRICS["MTR-004"]
-        is_accurate = (claimed_num >= 420)
+        is_accurate = (claimed_num >= 420 and claimed_num < 1000)
         if is_accurate:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",

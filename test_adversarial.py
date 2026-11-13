@@ -69,7 +69,7 @@ assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lowe
 assert not any(f['verdict'] == 'CONFLICT' for f in d7['findings']), "False CONFLICT on 421 customers"
 print("-> TEST 7 PASSED: 421 enterprise customers verified under 420+ lower bound!")
 
-# Test 8: Unrestricted Lower-Bound Customer Count Verification (501 and 600 verified; 419 conflict)
+# Test 8: Organic Growth vs Exaggeration Customer Count Verification (501/600 verified; 419 deficit & 1500 exaggeration are conflicts)
 cust_501_text = "We have 501 enterprise customers."
 d8 = test_payload("TEST 8: CUSTOMER COUNT 501 GROWTH (>= 420+ LOWER BOUND)", cust_501_text)
 assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d8['findings']), "Expected VERIFIED on 501 customers"
@@ -78,6 +78,10 @@ assert not any(f['verdict'] == 'CONFLICT' for f in d8['findings']), "False CONFL
 cust_419_text = "We have 419 enterprise customers."
 d8b = test_payload("TEST 8b: CUSTOMER COUNT 419 DEFICIT (< 420 LOWER BOUND)", cust_419_text)
 assert any(f['verdict'] == 'CONFLICT' and 'customer' in f['guidelineTitle'].lower() for f in d8b['findings']), "Expected CONFLICT on 419 customers"
-print("-> TEST 8 PASSED: Customer count verified strictly as 420+ lower bound (419 CONFLICT, 501/600 VERIFIED)!")
+
+cust_1500_text = "With over 1,500 enterprise customers across the globe."
+d8c = test_payload("TEST 8c: CUSTOMER COUNT 1,500 EXAGGERATION (>= 1,000 CONFLICT)", cust_1500_text)
+assert any(f['verdict'] == 'CONFLICT' and 'customer' in f['guidelineTitle'].lower() for f in d8c['findings']), "Expected CONFLICT on 1,500 customers"
+print("-> TEST 8 PASSED: Customer count verified strictly as 420+ lower bound with organic growth (419 deficit CONFLICT, 501/600 VERIFIED, 1500 exaggeration CONFLICT)!")
 
 print("\nALL 8 VERIFICATION TESTS PASSED CLEANLY!")

@@ -170,7 +170,7 @@ export const VERIFIED_METRICS: VerifiedMetric[] = [
     sourceDoc: 'Investor Q3 2026 Shareholder Disclosure',
     section: 'Key Performance Indicators (KPIs)',
     status: 'active',
-    toleranceNotes: 'Approved figure is "420+ global enterprise brands". Claims over 500 or 1,000 are inaccurate.',
+    toleranceNotes: 'Audited ground truth is "420+ global enterprise brands". Organic growth between 420 and 999 is verified. Deficits under 420 understate audited accounts (CONFLICT), while unsubstantiated claims of 1,000+ or 1,500+ represent material exaggerations without fresh shareholder audit filings (CONFLICT).',
   },
   {
     id: 'MTR-005',
