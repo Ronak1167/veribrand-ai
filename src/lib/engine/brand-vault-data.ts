@@ -1,0 +1,303 @@
+// VeriBrand AI — Dynamic Brand Vault Data
+// Ground-Truth Knowledge Base for Inkloom AI & VeriBrand Brand Governance
+
+import { BrandRule, VerifiedMetric, AmbiguityMetric, ChannelType } from '@/types';
+
+export const APPROVED_PALETTE = [
+  { name: 'Brand Indigo', hex: '#4F46E5', role: 'Primary Brand Action' },
+  { name: 'Brand Cyan', hex: '#06B6D4', role: 'Secondary Accent' },
+  { name: 'Emerald Success', hex: '#10B981', role: 'Verification Pill' },
+  { name: 'Slate Deep', hex: '#0F172A', role: 'Surface Background' },
+  { name: 'Neutral Gray', hex: '#64748B', role: 'Body Copy' },
+];
+
+export const FORBIDDEN_HEX_CODES = [
+  { hex: '#ff0033', name: 'Rogue Crimson', violation: 'Unapproved non-brand accent color. Violates Brand Stylebook v3.2 §4.1.' },
+  { hex: '#00ff00', name: 'Neon Green', violation: 'Accessibility contrast failure against white/light backgrounds.' },
+  { hex: '#ff00ff', name: 'Magenta Hot', violation: 'Unsanctioned promotional badge color.' },
+];
+
+export const BRAND_RULES: BrandRule[] = [
+  {
+    id: 'RULE-TM-01',
+    category: 'terminology',
+    title: 'Proper Trademark Casing for Inkloom AI',
+    description: 'Corporate naming policy mandates capitalized "Inkloom AI". Lowercase or unspaced variations dilute trademark rights.',
+    authorityLevel: 1, // Legal
+    severity: 'critical',
+    forbiddenPatterns: ['inkloom', 'ink loom', 'inkloom ai', 'inkloom.ai'],
+    approvedAlternative: 'Inkloom AI',
+    citation: 'Corporate Trademark Identity Handbook (2026) §1.2',
+  },
+  {
+    id: 'RULE-TM-02',
+    category: 'terminology',
+    title: 'Product Naming: VeriBrand AI',
+    description: 'Product name must be camel-cased as "VeriBrand AI". Never use "veribrand", "Veribrand", or "VeryBrand".',
+    authorityLevel: 1,
+    severity: 'critical',
+    forbiddenPatterns: ['veribrand', 'verybrand', 'veri brand', 'veribrand.ai'],
+    approvedAlternative: 'VeriBrand AI',
+    citation: 'Product Architecture Catalog (2026) §2.4',
+  },
+  {
+    id: 'RULE-TERM-03',
+    category: 'terminology',
+    title: 'Deprecated Marketing Terminology: AI Wizard',
+    description: 'Avoid mysterious or deceptive tech jargon like "AI wizard" or "magic algorithm". Use explicit, transparent engineering terms.',
+    authorityLevel: 2, // Stylebook
+    severity: 'warning',
+    forbiddenPatterns: ['artificial intelligence wizard', 'ai wizard', 'magic algorithm', 'secret sauce'],
+    approvedAlternative: 'Explainable Compliance Co-Pilot',
+    citation: 'Brand Tone & Messaging Guide §3.1',
+  },
+  {
+    id: 'RULE-TONE-04',
+    category: 'tone_drift',
+    title: 'Hyperbolic Unsubstantiated Superlatives',
+    description: 'Statements like "world\'s best" or "most revolutionary" violate enterprise advertising compliance guidelines (FTC/ASCI).',
+    authorityLevel: 1, // Legal
+    severity: 'critical',
+    forbiddenPatterns: [
+      "world's most revolutionary",
+      "world's best",
+      "#1 brand in the world",
+      "unbeatable platform",
+      "flawless guarantee",
+      "zero risk",
+      "guaranteed 100%",
+    ],
+    approvedAlternative: 'Industry-leading, empirical brand governance engine',
+    citation: 'FTC & Regulatory Compliance Manual §5.3',
+  },
+  {
+    id: 'RULE-TONE-05',
+    category: 'tone_drift',
+    title: 'Absolutist Autonomous Claims',
+    description: 'Do not claim the system "replaces all humans" or "eliminates all human review". We champion human-in-the-loop coaching.',
+    authorityLevel: 2,
+    severity: 'warning',
+    forbiddenPatterns: [
+      'replaces all human editors',
+      'replaces all humans',
+      'eliminates need for human review',
+      'no human oversight required',
+    ],
+    approvedAlternative: 'empowers brand teams with automated pre-screening while maintaining human oversight',
+    citation: 'Responsible AI Principles (Inkloom AI) §2.1',
+  },
+];
+
+export const VERIFIED_METRICS: VerifiedMetric[] = [
+  {
+    id: 'MTR-001',
+    metricName: 'Enterprise Client Retention Rate',
+    approvedValue: '94.2%',
+    rawNumber: 94.2,
+    unit: '%',
+    validFrom: '2026-01-01',
+    validUntil: '2026-12-31',
+    sourceDoc: 'KPMG FY25 Enterprise Quality Audit Report',
+    section: 'Executive Summary p. 4',
+    status: 'active',
+    toleranceNotes: 'Must be stated as 94.2% or "over 94%". Do not round up to 95% or 100%.',
+  },
+  {
+    id: 'MTR-002',
+    metricName: 'Security Certification Tier',
+    approvedValue: 'SOC 2 Type II',
+    validFrom: '2026-01-01',
+    validUntil: '2027-01-01',
+    sourceDoc: 'A-LIGN Annual Security Attestation',
+    section: 'Trust & Safety Portal §3',
+    status: 'active',
+    toleranceNotes: 'Must include "Type II". "SOC 2 Type I" or "ISO 27001" without qualification is prohibited.',
+  },
+  {
+    id: 'MTR-003',
+    metricName: 'System Availability SLA',
+    approvedValue: '99.9%',
+    rawNumber: 99.9,
+    unit: '%',
+    validFrom: '2026-01-01',
+    validUntil: null,
+    sourceDoc: 'Enterprise Master Service Agreement (MSA) v4.1',
+    section: 'Schedule B: Service Level Agreement',
+    status: 'active',
+    toleranceNotes: 'Approved SLA is 99.9%. Claiming 99.99% or 99.999% constitutes false advertising.',
+  },
+  {
+    id: 'MTR-004',
+    metricName: 'Active Enterprise Customers',
+    approvedValue: '420+',
+    rawNumber: 420,
+    unit: 'brands',
+    validFrom: '2026-10-01',
+    validUntil: '2026-12-31',
+    sourceDoc: 'Investor Q3 2026 Shareholder Disclosure',
+    section: 'Key Performance Indicators (KPIs)',
+    status: 'active',
+    toleranceNotes: 'Approved figure is "420+ global enterprise brands". Claims over 500 or 1,000 are inaccurate.',
+  },
+  {
+    id: 'MTR-005',
+    metricName: 'Routine Review Turnaround Reduction',
+    approvedValue: 'up to 75%',
+    rawNumber: 75,
+    unit: '%',
+    validFrom: '2026-11-01',
+    validUntil: null,
+    sourceDoc: 'VeriBrand AI Operational Benchmark & Hackathon Plan',
+    section: '§9 Projected Operational Targets',
+    status: 'active',
+    toleranceNotes: 'Must be framed as a projected engineering target ("up to 75%"), subject to empirical validation.',
+  },
+  {
+    id: 'MTR-006',
+    metricName: 'Annual Recurring Revenue (ARR)',
+    approvedValue: '$18.5M',
+    rawNumber: 18.5,
+    unit: 'USD Millions',
+    validFrom: '2026-09-30',
+    validUntil: '2026-12-31',
+    sourceDoc: 'Deloitte FY25 Audited Financial Statement',
+    section: 'Financial Highlights p. 8',
+    status: 'active',
+    toleranceNotes: 'Audited ARR is $18.5M. Unaudited claims ($50M or $100M) trigger direct CONFLICT.',
+  },
+  {
+    id: 'MTR-007',
+    metricName: 'Legacy Entry Pricing Tier',
+    approvedValue: '$49/mo',
+    rawNumber: 49,
+    unit: 'USD/month',
+    validFrom: '2024-01-01',
+    validUntil: '2026-08-31', // EXPIRED!
+    sourceDoc: 'Product Pricing Schedule FY24 (Superseded)',
+    section: 'Standard Tier (Archived)',
+    status: 'outdated',
+    toleranceNotes: 'SUPERSEDED on 2026-09-01 by $79/mo Starter tier. Quotes of $49/mo trigger UNVERIFIED (OUTDATED).',
+  },
+  {
+    id: 'MTR-008',
+    metricName: 'Stylebook Consultation Frequency Survey',
+    approvedValue: '86% (12 of 14)',
+    rawNumber: 85.71,
+    unit: '%',
+    validFrom: '2026-11-01',
+    validUntil: null,
+    sourceDoc: 'VeriBrand Practitioner Research Survey (14 Marketers)',
+    section: '§1 Empirical Problem Evidence',
+    status: 'active',
+    toleranceNotes: '12 of 14 respondents = 85.71%, correctly rounded to 86%. Avoid unrounded 85%.',
+  },
+];
+
+export interface PresetDraft {
+  id: string;
+  name: string;
+  badge: string;
+  badgeColor: string;
+  description: string;
+  channel: ChannelType;
+  content: string;
+}
+
+export const PRESET_DRAFTS: PresetDraft[] = [
+  {
+    id: 'draft-broken-marketing',
+    name: 'Scenario 1: High-Risk Broken Copy (6 Violations)',
+    badge: 'High Risk • 6 Violations',
+    badgeColor: 'bg-rose-500/10 text-rose-400 border-rose-500/30',
+    description: 'Contains trademark casing flaws, unapproved superlatives, 3 claim conflicts, an outdated price, and rogue hex code.',
+    channel: 'linkedin',
+    content: `Welcome to inkloom! We are the world's most revolutionary brand governance platform, guaranteeing 99.999% uptime and zero risk for all users. With over 1,500 enterprise customers and $50M in annual revenue, our artificial intelligence wizard automatically replaces all human editors. You can still lock in our legacy pricing at just $49/mo today! For our header graphics, apply background color #ff0033.`,
+  },
+  {
+    id: 'draft-borderline',
+    name: 'Scenario 2: Subtle Borderline Copy (Claim + Superlative)',
+    badge: 'Moderate • 2 Flags',
+    badgeColor: 'bg-amber-500/10 text-amber-400 border-amber-500/30',
+    description: 'Mostly factual copy, but includes an unverified legal superlative and casing inconsistency.',
+    channel: 'enterprise_web',
+    content: `VeriBrand AI helps modern marketing teams streamline their publishing pipeline. Backed by SOC 2 Type II certification and 99.9% uptime, our platform supports 420+ global enterprise brands. Our system provides a flawless guarantee against all trademark and copyright lawsuits worldwide.`,
+  },
+  {
+    id: 'draft-clean-compliant',
+    name: 'Scenario 3: 100% On-Brand Compliant Draft',
+    badge: 'Approved • 100% Score',
+    badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
+    description: 'Fully compliant draft with verified metrics, correct trademark capitalization, and approved tone.',
+    channel: 'press_release',
+    content: `Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an industry-verified 94.2% enterprise client retention rate, our explainable compliance co-pilot accelerates routine review turnaround by up to 75%.`,
+  },
+];
+
+export const INITIAL_AMBIGUITY_METRICS: AmbiguityMetric[] = [
+  {
+    ruleId: 'RULE-TONE-04',
+    ruleTitle: 'B2B Professional vs Conversational Tone',
+    category: 'tone_drift',
+    totalTriggers: 148,
+    overrideCount: 62,
+    overrideRatePct: 41.9,
+    confusionScore: 78,
+    status: 'ambiguous',
+    recommendedClarification: 'Define explicit permissible punchy phrases for social posts vs formal whitepapers. Current policy is too rigid for LinkedIn.',
+  },
+  {
+    ruleId: 'RULE-CLAIM-03',
+    ruleTitle: 'System Availability & SLA Quoting',
+    category: 'claim_verification',
+    totalTriggers: 89,
+    overrideCount: 14,
+    overrideRatePct: 15.7,
+    confusionScore: 32,
+    status: 'clear',
+    recommendedClarification: '99.9% standard SLA is well understood; occasional typos from sales collateral quoting 99.99%.',
+  },
+  {
+    ruleId: 'RULE-TERM-03',
+    category: 'terminology',
+    ruleTitle: 'AI Assistant Jargon & Wizard Phrases',
+    totalTriggers: 112,
+    overrideCount: 48,
+    overrideRatePct: 42.8,
+    confusionScore: 72,
+    status: 'ambiguous',
+    recommendedClarification: 'Provide copywriters with a "What to say instead" table in the style guide; writers confuse "co-pilot" with "assistant".',
+  },
+  {
+    ruleId: 'RULE-TM-01',
+    category: 'terminology',
+    ruleTitle: 'Inkloom AI Trademark Casing',
+    totalTriggers: 215,
+    overrideCount: 8,
+    overrideRatePct: 3.7,
+    confusionScore: 12,
+    status: 'clear',
+    recommendedClarification: 'Deterministic rule is unambiguous. 96.3% of creators adopt the 1-click capitalization rewrite immediately.',
+  },
+  {
+    ruleId: 'RULE-PRICE-07',
+    category: 'claim_verification',
+    ruleTitle: 'Legacy Pricing Quotes ($49/mo)',
+    totalTriggers: 64,
+    overrideCount: 29,
+    overrideRatePct: 45.3,
+    confusionScore: 84,
+    status: 'ambiguous',
+    recommendedClarification: 'Sales teams frequently quote archived $49/mo tier for grandfathered renewals. Recommend adding explicit "Grandfathered Renewal" disclaimer clause.',
+  },
+  {
+    ruleId: 'RULE-VIS-01',
+    category: 'visual_token',
+    ruleTitle: 'Hex Palette & Color Accent Guardrails',
+    totalTriggers: 42,
+    overrideCount: 11,
+    overrideRatePct: 26.2,
+    confusionScore: 48,
+    status: 'monitor',
+    recommendedClarification: 'Marketing agencies occasionally test non-brand promo colors (#FF0033). Recommend publishing official campaign seasonal sub-palettes.',
+  },
+];

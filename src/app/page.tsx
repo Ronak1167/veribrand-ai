@@ -1,69 +1,279 @@
-import Image from "next/image";
+'use client';
+
+import React, { useState, useMemo } from 'react';
+import { Navbar } from '@/components/Navbar';
+import { EditorView } from '@/components/EditorView';
+import { ReviewerView } from '@/components/ReviewerView';
+import { AmbiguityHeatmapView } from '@/components/AmbiguityHeatmapView';
+import { BrandVaultModal } from '@/components/BrandVaultModal';
+import { auditContent } from '@/lib/engine/verifier';
+import {
+  ChannelType,
+  LintFinding,
+  ReviewSubmission,
+  AmbiguityMetric,
+} from '@/types';
+import {
+  PRESET_DRAFTS,
+  INITIAL_AMBIGUITY_METRICS,
+} from '@/lib/engine/brand-vault-data';
 
 export default function Home() {
+  const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
+  const [channel, setChannel] = useState<ChannelType>('linkedin');
+  const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
+  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
+
+  // Compute live audit in real time
+  const auditResult = useMemo(() => {
+    return auditContent(content, channel);
+  }, [content, channel]);
+
+  // Initial submissions list so judges can test the Reviewer Dashboard immediately
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>([
+    {
+      id: 'SUB-INIT-01',
+      title: 'Q4 Product Launch Press Release',
+      channel: 'press_release',
+      creatorName: 'Elena Rostova (Senior Copywriter)',
+      submittedAt: '2026-11-13T09:00:00.000Z',
+      status: 'pending_review',
+      originalText: PRESET_DRAFTS[1].content,
+      currentText: PRESET_DRAFTS[1].content,
+      auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
+      comments: [
+        {
+          id: 'C-1',
+          author: 'Elena Rostova',
+          role: 'Creator',
+          text: 'Draft calibrated for enterprise buyers. The trademark phrasing and 99.9% uptime have been validated.',
+          timestamp: '2026-11-13T09:15:00.000Z',
+        },
+      ],
+    },
+    {
+      id: 'SUB-INIT-02',
+      title: 'Global Social Ad Campaign',
+      channel: 'linkedin',
+      creatorName: 'Marcus Vance (Growth Lead)',
+      submittedAt: '2026-11-13T08:00:00.000Z',
+      status: 'approved',
+      originalText: PRESET_DRAFTS[2].content,
+      currentText: PRESET_DRAFTS[2].content,
+      auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
+      sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
+      signedOffAt: '2026-11-13T08:30:00.000Z',
+      signedOffBy: 'Sarah Chen (Brand Guardian)',
+      comments: [
+        {
+          id: 'C-2',
+          author: 'Sarah Chen',
+          role: 'Brand Reviewer',
+          text: 'Clean audit pass. Approved for public syndication.',
+          timestamp: '2026-11-13T08:30:00.000Z',
+        },
+      ],
+    },
+  ]);
+
+  // Handle Loading Preset Demo Scenarios
+  const handleSelectPreset = (presetId: string) => {
+    const draft = PRESET_DRAFTS.find((p) => p.id === presetId);
+    if (draft) {
+      setContent(draft.content);
+      setChannel(draft.channel);
+      setActiveTab('editor');
+    }
+  };
+
+  // 1-Click Rewrite Application (The 2nd Named Improvement)
+  const handleApplyRewrite = (finding: LintFinding, rewriteText: string) => {
+    setContent((prev) => {
+      return prev.replace(finding.matchedText, rewriteText);
+    });
+  };
+
+  // Creator Appeal & Override with Rationale
+  const handleCreatorOverride = (findingId: string, rationale: string) => {
+    const finding = auditResult.findings.find((f) => f.id === findingId);
+    if (finding) {
+      finding.override = {
+        overridden: true,
+        rationale,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Feed into Ambiguity Heatmap (Reverse Brand Intelligence)
+      setAmbiguityMetrics((prev) =>
+        prev.map((metric) => {
+          if (
+            metric.category === finding.category ||
+            finding.guidelineTitle.toLowerCase().includes(metric.ruleTitle.toLowerCase().slice(0, 10))
+          ) {
+            const newOverrides = metric.overrideCount + 1;
+            const newRate = Math.round((newOverrides / (metric.totalTriggers + 1)) * 1000) / 10;
+            return {
+              ...metric,
+              overrideCount: newOverrides,
+              totalTriggers: metric.totalTriggers + 1,
+              overrideRatePct: newRate,
+              confusionScore: Math.min(100, Math.round(metric.confusionScore + 3)),
+              status: newRate > 40 ? 'ambiguous' : 'monitor',
+            };
+          }
+          return metric;
+        })
+      );
+    }
+  };
+
+  // Submit Draft to Reviewer Queue
+  const handleSubmitForReview = (title: string, creatorName: string) => {
+    const newSubmission: ReviewSubmission = {
+      id: `SUB-${Date.now().toString(36).toUpperCase()}`,
+      title,
+      channel,
+      creatorName,
+      submittedAt: new Date().toISOString(),
+      status: 'pending_review',
+      originalText: content,
+      currentText: content,
+      auditResult: { ...auditResult },
+      comments: [
+        {
+          id: `COM-${Date.now()}`,
+          author: creatorName,
+          role: 'Creator',
+          text: `Submitted draft for review across ${channel.replace('_', ' ')} with compliance score of ${auditResult.complianceScore}/100.`,
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    setSubmissions((prev) => [newSubmission, ...prev]);
+    setActiveTab('reviewer');
+  };
+
+  // Brand Reviewer Approval with SHA-256 Hash
+  const handleApproveSubmission = (
+    submissionId: string,
+    sha256Hash: string,
+    reviewerName: string
+  ) => {
+    setSubmissions((prev) =>
+      prev.map((sub) => {
+        if (sub.id === submissionId) {
+          return {
+            ...sub,
+            status: 'approved',
+            sha256Hash,
+            signedOffAt: new Date().toISOString(),
+            signedOffBy: reviewerName,
+            comments: [
+              ...sub.comments,
+              {
+                id: `COM-${Date.now()}`,
+                author: reviewerName,
+                role: 'Brand Reviewer',
+                text: `Approved content and committed SHA-256 integrity hash: ${sha256Hash.slice(0, 20)}...`,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        return sub;
+      })
+    );
+  };
+
+  // Brand Reviewer Request Changes
+  const handleRequestChanges = (submissionId: string, commentText: string) => {
+    setSubmissions((prev) =>
+      prev.map((sub) => {
+        if (sub.id === submissionId) {
+          return {
+            ...sub,
+            status: 'changes_requested',
+            comments: [
+              ...sub.comments,
+              {
+                id: `COM-${Date.now()}`,
+                author: 'Brand Reviewer',
+                role: 'Brand Reviewer',
+                text: `Changes Requested: ${commentText}`,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          };
+        }
+        return sub;
+      })
+    );
+  };
+
+  const pendingCount = submissions.filter((s) => s.status === 'pending_review').length;
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+      {/* Top Navigation */}
+      <Navbar
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        pendingReviewsCount={pendingCount}
+        onSelectPreset={handleSelectPreset}
+      />
+
+      {/* Main Content Area */}
+      <main className="flex-1 pb-16">
+        {activeTab === 'editor' && (
+          <EditorView
+            content={content}
+            setContent={setContent}
+            channel={channel}
+            setChannel={setChannel}
+            auditResult={auditResult}
+            onApplyRewrite={handleApplyRewrite}
+            onCreatorOverride={handleCreatorOverride}
+            onSubmitForReview={handleSubmitForReview}
+          />
+        )}
+
+        {activeTab === 'reviewer' && (
+          <ReviewerView
+            submissions={submissions}
+            onApproveSubmission={handleApproveSubmission}
+            onRequestChanges={handleRequestChanges}
+          />
+        )}
+
+        {activeTab === 'heatmap' && (
+          <AmbiguityHeatmapView metrics={ambiguityMetrics} />
+        )}
+
+        {activeTab === 'vault' && <BrandVaultModal />}
       </main>
+
+      {/* Global Footer with Hackathon Credentials & Tech Stack Details */}
+      <footer className="bg-slate-900 border-t border-slate-800/80 py-6 text-xs text-slate-500">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="font-semibold text-slate-400">
+              VeriBrand AI • Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
+            </p>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              CodeNova India Hackathon 2026 • Problem Statement by Inkloom AI • Round 2 Build
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-4 text-[11px]">
+            <span>Team: <strong className="text-slate-300">Team Deccans</strong></span>
+            <span>•</span>
+            <span>Solo Architect: <strong className="text-slate-300">Ronak Jain</strong></span>
+            <span>•</span>
+            <span>Status: <strong className="text-emerald-400">All Core Workflows Operational</strong></span>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
