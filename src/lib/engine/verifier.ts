@@ -449,7 +449,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'at least 420 active enterprise customer accounts',
           },
         });
@@ -471,7 +471,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'at least 420 active enterprise customer accounts',
           },
         });
@@ -492,7 +492,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'at least 420 active enterprise customer accounts',
           },
         });
@@ -514,7 +514,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'at least 420 active enterprise customer accounts',
           },
         });
@@ -536,7 +536,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts (audited baseline)',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'over 420 active enterprise customer accounts',
           },
         });
@@ -558,7 +558,7 @@ function runTier2ClaimVerification(text: string): {
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts (audited baseline)',
-            punchy: 'trusted by 420+ enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
             conservative: 'over 420 active enterprise customer accounts',
           },
         });
@@ -592,7 +592,7 @@ function runTier2ClaimVerification(text: string): {
         evidence: provenance,
         rewrites: {
           direct: '420+ active enterprise customer accounts',
-          punchy: 'trusted by 420+ enterprise customer accounts',
+          punchy: '420+ active enterprise customer accounts',
           conservative: 'at least 420 active enterprise customer accounts',
         },
       });
@@ -935,7 +935,7 @@ function runTier2ClaimVerification(text: string): {
         authorityLevel: 2,
         rewrites: {
           direct: '420+ active enterprise customer accounts',
-          punchy: 'trusted by 420+ enterprise customer accounts',
+          punchy: '420+ active enterprise customer accounts',
           conservative: 'over 420 active enterprise customer accounts',
         },
       });

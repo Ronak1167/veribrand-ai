@@ -76,6 +76,9 @@ export const BRAND_RULES: BrandRule[] = [
       "best-in-class",
       "best in class",
       "premier",
+      "better than every competitor",
+      "the best brand governance platform",
+      "market best",
     ],
     approvedAlternative: 'enterprise brand governance platform',
     citation: 'FTC & Regulatory Compliance Manual §5.3',
@@ -273,7 +276,7 @@ export const PRESET_DRAFTS: PresetDraft[] = [
     badgeColor: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30',
     description: 'Fully compliant draft with verified metrics, correct trademark capitalization, and approved tone.',
     channel: 'press_release',
-    content: `Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an industry-verified 94.2% enterprise client retention rate, our explainable compliance co-pilot targets accelerating routine review turnaround by up to 75%.`,
+    content: `Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an audited 94.2% enterprise client retention rate, our explainable compliance co-pilot targets accelerating routine review turnaround by up to 75%.`,
   },
 ];
 

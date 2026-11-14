@@ -144,6 +144,9 @@ BRAND_RULES = [
             "best-in-class",
             "best in class",
             "premier",
+            "better than every competitor",
+            "the best brand governance platform",
+            "market best",
         ],
         "approved": "enterprise brand governance platform",
         "title": "Hyperbolic Unsubstantiated Superlatives",
@@ -476,7 +479,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
@@ -505,7 +508,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
@@ -534,7 +537,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
@@ -562,7 +565,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
@@ -591,7 +594,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
@@ -620,7 +623,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts (audited baseline)",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "over 420 active enterprise customer accounts"
                 }
             })
@@ -649,7 +652,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts (audited baseline)",
-                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
                     "conservative": "over 420 active enterprise customer accounts"
                 }
             })
@@ -1012,7 +1015,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "authority_level": 2,
             "rewrites": {
                 "direct": "420+ active enterprise customer accounts",
-                "punchy": "trusted by 420+ enterprise customer accounts",
+                "punchy": "420+ active enterprise customer accounts",
                 "conservative": "over 420 active enterprise customer accounts"
             }
         })

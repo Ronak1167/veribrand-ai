@@ -19,7 +19,7 @@ def test_payload(name, text):
 # Test 1: Compliant Draft (Must be 100/100 with zero false positives!)
 compliant_text = (
     "Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing "
-    "without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an industry-verified "
+    "without sacrificing brand integrity. Backed by audited SOC 2 Type II security standards and an audited "
     "94.2% enterprise client retention rate, our explainable compliance co-pilot targets accelerating routine review turnaround by up to 75%."
 )
 d1 = test_payload("TEST 1: 100% COMPLIANT SCENARIO", compliant_text)
@@ -157,7 +157,12 @@ assert any('superlative' in f['guidelineTitle'].lower() or 'tone' in f['category
 sup_clean_text = "We provide an enterprise brand governance platform with SOC 2 Type II certification."
 d11c = test_payload("TEST 11c: GROUNDED OBJECTIVE PHRASING", sup_clean_text)
 assert d11c['complianceScore'] == 100, f"Expected 100, got {d11c['complianceScore']}"
-print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading') caught; objective phrasing approved!")
+
+# 11d: Expanded superlatives ("better than every competitor", "the best brand governance platform", "market best") -> FLAGGED
+sup_exp_text = "Our platform is better than every competitor and is the best brand governance platform on the market."
+d11d = test_payload("TEST 11d: EXPANDED SUPERLATIVES", sup_exp_text)
+assert any('superlative' in f['guidelineTitle'].lower() or 'tone' in f['category'].lower() for f in d11d['findings']), "Expected flag on expanded superlatives"
+print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading', expanded superlatives) caught; objective phrasing approved!")
 
 # Test 12: Terminology Rewrite Safety Verification
 # Flagging 'inkloom' and 'magic algorithm' must generate rewrites free of unverified claims, '(verified)', and 'Enterprise Standard'
