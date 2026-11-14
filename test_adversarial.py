@@ -174,15 +174,17 @@ d11f = test_payload("TEST 11f: UNSUPPORTED MODIFIER 'INDUSTRY-VERIFIED'", sup_mo
 assert any('industry-verified' in f['matchedText'].lower() for f in d11f['findings']), "Expected flag on 'industry-verified'"
 print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading', expanded, unsupported modifiers) caught; negation false positives eliminated; objective phrasing approved!")
 
-# Test 12: Comprehensive Cross-Category Rewrite Safety Regression Suite
-# Audits generated rewrites across ALL categories (terminology, pricing, SLA, customers, ARR, tone, visual)
+# Test 12: Comprehensive Cross-Category Rewrite Safety & Semantic Invariant Suite
+# Audits generated rewrites across ALL categories (terminology, pricing, SLA, customers, ARR, turnaround, tone, visual)
 # Rejects alternatives that introduce unsupported facts, fake badges, or unverified compliance claims.
+# Strictly enforces metric-category preservation (e.g. annual revenue cannot become ARR).
 rewrite_corpus = [
     ("TERMINOLOGY", "Our team uses inkloom and our magic algorithm to review copy."),
     ("PRICING", "You can purchase our plan for $49/mo or $99/mo today."),
     ("SLA UPTIME", "We guarantee 99.999% uptime for all users."),
     ("CUSTOMERS", "We support 100 enterprise customers across regions."),
     ("ARR / REVENUE", "We reached $50M in ARR and $50M in annual revenue."),
+    ("TARGET TURNAROUND", "Our platform review turnaround reduction of up to 75%."),
     ("TONE SUPERLATIVES", "We built the world's most revolutionary governance platform with zero risk."),
     ("VISUAL HEX", "Use header background color #ff0033.")
 ]
@@ -202,7 +204,7 @@ prohibited_rewrite_tokens = [
 
 total_rewrites_audited = 0
 for cat_name, test_text in rewrite_corpus:
-    res = test_payload(f"TEST 12 [{cat_name}]: REWRITE SAFETY AUDIT", test_text)
+    res = test_payload(f"TEST 12 [{cat_name}]: REWRITE SAFETY & SEMANTIC AUDIT", test_text)
     for f in res['findings']:
         if 'rewrites' in f and f['rewrites']:
             assert all(tone in f['rewrites'] for tone in ['direct', 'punchy', 'conservative']), f"Missing tone variant in {f['guidelineTitle']}"
@@ -211,6 +213,38 @@ for cat_name, test_text in rewrite_corpus:
                 for token in prohibited_rewrite_tokens:
                     assert token not in rw.lower(), f"Unsafe token '{token}' found in {cat_name} [{tone}] rewrite: '{rw}'"
 
-print(f"-> TEST 12 PASSED: Cross-category rewrite safety regression suite audited {total_rewrites_audited} rewrite variants across all 7 categories with zero unverified compliance claims, fake badges, or hyperbolic modifiers!")
+            # Semantic Invariant & Metric-Category Preservation Checks:
+            title = f.get('guidelineTitle', '')
+            for tone, rw in f['rewrites'].items():
+                rw_lower = rw.lower()
+
+                # 1. Annual revenue cannot be rewritten as ARR
+                if title == 'Unverified Annual Revenue Metric':
+                    assert 'arr' not in rw_lower and 'recurring' not in rw_lower, \
+                        f"Metric category mismatch: Annual revenue rewritten as ARR in [{tone}]: '{rw}'"
+
+                # 2. ARR cannot be rewritten as total revenue
+                if title == 'False ARR Financial Disclosure':
+                    assert 'annual revenue' not in rw_lower and 'total revenue' not in rw_lower, \
+                        f"Metric category mismatch: ARR rewritten as general annual revenue in [{tone}]: '{rw}'"
+
+                # 3. Customer account counts cannot silently become a brand count
+                if 'Customer Count' in title:
+                    assert 'brand' not in rw_lower and 'brands' not in rw_lower, \
+                        f"Entity category mismatch: Customer accounts rewritten as brands in [{tone}]: '{rw}'"
+
+                # 4. Projected target cannot become a historical performance claim
+                if title == 'Unqualified Operational Target':
+                    assert any(term in rw_lower for term in ['target', 'projected']), \
+                        f"Target framing lost in [{tone}]: '{rw}'"
+                    assert not any(past in rw_lower for past in ['achieved', 'delivered', 'guaranteed']), \
+                        f"Historical performance claimed in [{tone}]: '{rw}'"
+
+                # 5. SLA cannot become a broader unconditional guarantee
+                if 'SLA' in title:
+                    assert 'guaranteed 100%' not in rw_lower and 'unconditional' not in rw_lower, \
+                        f"SLA transformed into unconditional guarantee in [{tone}]: '{rw}'"
+
+print(f"-> TEST 12 PASSED: Cross-category rewrite safety & semantic invariant suite audited {total_rewrites_audited} rewrite variants across all 8 categories with zero unverified compliance claims, fake badges, hyperbolic modifiers, or metric-category mismatches!")
 
 print("\nALL 12 VERIFICATION TESTS PASSED CLEANLY!")

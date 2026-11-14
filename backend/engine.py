@@ -757,9 +757,9 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "status": "active"
                 },
                 "rewrites": {
-                    "direct": "$18.5M Annual Recurring Revenue (ARR)",
-                    "punchy": "$18.5M ARR",
-                    "conservative": "$18.5M in audited ARR (Deloitte FY25)"
+                    "direct": "Annual revenue figure pending approved disclosure",
+                    "punchy": "Contact us for approved financial disclosures",
+                    "conservative": "Annual revenue not currently disclosed in the approved Brand Vault"
                 }
             })
 
