@@ -410,7 +410,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "99.9% uptime SLA",
-                    "punchy": "guaranteed 99.9% enterprise uptime",
+                    "punchy": "99.9% enterprise uptime SLA",
                     "conservative": "audited 99.9% service availability"
                 }
             })
@@ -439,7 +439,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "99.9% uptime SLA",
-                    "punchy": "rock-solid 99.9% enterprise uptime",
+                    "punchy": "99.9% enterprise uptime SLA",
                     "conservative": "audited 99.9% SLA availability"
                 }
             })
@@ -812,7 +812,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "$79/mo",
-                    "punchy": "$79/mo with full enterprise compliance",
+                    "punchy": "$79/mo standard plan",
                     "conservative": "$79/month under current standard tier terms"
                 }
             })
@@ -900,7 +900,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 },
                 "rewrites": {
                     "direct": "SOC 2 Type II certified",
-                    "punchy": "rigorous SOC 2 Type II compliance",
+                    "punchy": "attested SOC 2 Type II security",
                     "conservative": "attested SOC 2 Type II security architecture"
                 }
             })

@@ -174,16 +174,43 @@ d11f = test_payload("TEST 11f: UNSUPPORTED MODIFIER 'INDUSTRY-VERIFIED'", sup_mo
 assert any('industry-verified' in f['matchedText'].lower() for f in d11f['findings']), "Expected flag on 'industry-verified'"
 print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading', expanded, unsupported modifiers) caught; negation false positives eliminated; objective phrasing approved!")
 
-# Test 12: Limited Terminology Rewrite Regression Check (Safety Audit)
-# Flagging 'inkloom' and 'magic algorithm' must generate rewrites free of unverified claims, '(verified)', and 'Enterprise Standard'
-rewrite_test_text = "Our team uses inkloom and our magic algorithm to review copy."
-d12 = test_payload("TEST 12: LIMITED TERMINOLOGY REWRITE REGRESSION CHECK", rewrite_test_text)
-for f in d12['findings']:
-    if 'rewrites' in f and f['rewrites']:
-        for tone, rw in f['rewrites'].items():
-            assert '(verified)' not in rw.lower(), f"Unsafe rewrite found '(verified)' in {tone}: {rw}"
-            assert 'enterprise standard' not in rw.lower(), f"Unsafe rewrite found 'enterprise standard' in {tone}: {rw}"
-            assert 'industry-leading' not in rw.lower(), f"Unsafe rewrite found 'industry-leading' in {tone}: {rw}"
-print("-> TEST 12 PASSED: Terminology rewrite regression check passed (verified absence of fake badges and synthetic assertions in tested rewrites).")
+# Test 12: Comprehensive Cross-Category Rewrite Safety Regression Suite
+# Audits generated rewrites across ALL categories (terminology, pricing, SLA, customers, ARR, tone, visual)
+# Rejects alternatives that introduce unsupported facts, fake badges, or unverified compliance claims.
+rewrite_corpus = [
+    ("TERMINOLOGY", "Our team uses inkloom and our magic algorithm to review copy."),
+    ("PRICING", "You can purchase our plan for $49/mo or $99/mo today."),
+    ("SLA UPTIME", "We guarantee 99.999% uptime for all users."),
+    ("CUSTOMERS", "We support 100 enterprise customers across regions."),
+    ("ARR / REVENUE", "We reached $50M in ARR and $50M in annual revenue."),
+    ("TONE SUPERLATIVES", "We built the world's most revolutionary governance platform with zero risk."),
+    ("VISUAL HEX", "Use header background color #ff0033.")
+]
+
+prohibited_rewrite_tokens = [
+    '(verified)',
+    'enterprise standard',
+    'with full enterprise compliance',
+    'industry-leading',
+    'industry-verified',
+    'rock-solid',
+    'guaranteed 99.9%',
+    "world's",
+    'revolutionary',
+    'zero risk',
+]
+
+total_rewrites_audited = 0
+for cat_name, test_text in rewrite_corpus:
+    res = test_payload(f"TEST 12 [{cat_name}]: REWRITE SAFETY AUDIT", test_text)
+    for f in res['findings']:
+        if 'rewrites' in f and f['rewrites']:
+            assert all(tone in f['rewrites'] for tone in ['direct', 'punchy', 'conservative']), f"Missing tone variant in {f['guidelineTitle']}"
+            for tone, rw in f['rewrites'].items():
+                total_rewrites_audited += 1
+                for token in prohibited_rewrite_tokens:
+                    assert token not in rw.lower(), f"Unsafe token '{token}' found in {cat_name} [{tone}] rewrite: '{rw}'"
+
+print(f"-> TEST 12 PASSED: Cross-category rewrite safety regression suite audited {total_rewrites_audited} rewrite variants across all 7 categories with zero unverified compliance claims, fake badges, or hyperbolic modifiers!")
 
 print("\nALL 12 VERIFICATION TESTS PASSED CLEANLY!")
