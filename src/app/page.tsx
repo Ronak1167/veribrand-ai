@@ -131,6 +131,15 @@ export default function Home() {
   // 1-Click Rewrite Application (The 2nd Named Improvement)
   const handleApplyRewrite = (finding: LintFinding, rewriteText: string) => {
     setContent((prev) => {
+      if (
+        finding.startIndex !== undefined &&
+        finding.endIndex !== undefined &&
+        finding.startIndex >= 0 &&
+        finding.endIndex <= prev.length &&
+        prev.slice(finding.startIndex, finding.endIndex) === finding.matchedText
+      ) {
+        return prev.slice(0, finding.startIndex) + rewriteText + prev.slice(finding.endIndex);
+      }
       return prev.replace(finding.matchedText, rewriteText);
     });
   };
@@ -146,12 +155,21 @@ export default function Home() {
       };
 
       // Feed into Ambiguity Heatmap (Reverse Brand Intelligence)
-      setAmbiguityMetrics((prev) =>
-        prev.map((metric) => {
-          if (
-            metric.category === finding.category ||
-            finding.guidelineTitle.toLowerCase().includes(metric.ruleTitle.toLowerCase().slice(0, 10))
-          ) {
+      // Attribution: Target specific rule/metric instead of sweeping the entire category
+      setAmbiguityMetrics((prev) => {
+        const specificMatch = prev.find((m) =>
+          (finding.evidence?.metricId && m.ruleId.includes(finding.evidence.metricId)) ||
+          (finding.id && m.ruleId.toLowerCase() === finding.id.toLowerCase()) ||
+          finding.guidelineTitle.toLowerCase().includes(m.ruleTitle.toLowerCase().slice(0, 10)) ||
+          m.ruleTitle.toLowerCase().includes(finding.guidelineTitle.toLowerCase().slice(0, 10))
+        );
+
+        return prev.map((metric) => {
+          const isTarget = specificMatch
+            ? metric.ruleId === specificMatch.ruleId
+            : metric.category === finding.category;
+
+          if (isTarget) {
             const newOverrides = metric.overrideCount + 1;
             const newRate = Math.round((newOverrides / (metric.totalTriggers + 1)) * 1000) / 10;
             return {
@@ -164,8 +182,8 @@ export default function Home() {
             };
           }
           return metric;
-        })
-      );
+        });
+      });
     }
   };
 

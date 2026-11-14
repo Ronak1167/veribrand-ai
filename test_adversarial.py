@@ -249,4 +249,63 @@ for cat_name, test_text in rewrite_corpus:
 
 print(f"-> TEST 12 PASSED: Cross-category rewrite safety & semantic invariant suite audited {total_rewrites_audited} rewrite variants across all 8 categories with zero unverified compliance claims, fake badges, hyperbolic modifiers, or metric-category mismatches!")
 
-print("\nALL 12 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 13: Edge Case Claim & Governance Invariants Suite
+# 13a: Retention rate numeric comparison against 94.2% (94.9% and 95% must trigger CONFLICT)
+ret_949_text = "Backed by 94.9% enterprise client retention."
+d13a1 = test_payload("TEST 13a1: RETENTION NUMERIC MISMATCH 94.9%", ret_949_text)
+assert any(f['verdict'] == 'CONFLICT' and 'retention' in f['guidelineTitle'].lower() for f in d13a1['findings']), "Expected CONFLICT on 94.9% retention"
+
+ret_95_text = "Backed by 95% enterprise retention."
+d13a2 = test_payload("TEST 13a2: RETENTION NUMERIC MISMATCH 95%", ret_95_text)
+assert any(f['verdict'] == 'CONFLICT' and 'retention' in f['guidelineTitle'].lower() for f in d13a2['findings']), "Expected CONFLICT on 95% retention"
+
+# 13b: Bidirectional Uptime SLA Negation & Revocation
+uptime_neg_text = "We do not provide 99.9% uptime."
+d13b = test_payload("TEST 13b: UPTIME NEGATION CONTRADICTION", uptime_neg_text)
+assert any(f['verdict'] == 'CONFLICT' and 'sla' in f['guidelineTitle'].lower() for f in d13b['findings']), "Expected CONFLICT on negated uptime"
+
+# 13c: Flexible SLA Phrasing & Unit Variations
+uptime_alt_text = "Our uptime of 99.999% is guaranteed."
+d13c1 = test_payload("TEST 13c1: ALTERNATIVE UPTIME WORD ORDER", uptime_alt_text)
+assert any(f['verdict'] == 'CONFLICT' and 'sla' in f['guidelineTitle'].lower() for f in d13c1['findings']), "Expected CONFLICT on alternative uptime word order"
+
+uptime_percent_text = "Holding a 99.999 percent uptime standard."
+d13c2 = test_payload("TEST 13c2: PERCENT WORD VARIANT IN SLA", uptime_percent_text)
+assert any(f['verdict'] == 'CONFLICT' and 'sla' in f['guidelineTitle'].lower() for f in d13c2['findings']), "Expected CONFLICT on 'percent' word SLA"
+
+# 13d: Subsequent Security Revocation
+sec_rev_text = "SOC 2 Type II is no longer active."
+d13d = test_payload("TEST 13d: SUBSEQUENT SECURITY REVOCATION", sec_rev_text)
+assert any(f['verdict'] == 'CONFLICT' and 'security' in f['guidelineTitle'].lower() for f in d13d['findings']), "Expected CONFLICT on revoked security cert"
+
+# 13e: Context-Aware Financial Classification (Funding & Valuation Ignored)
+fund_text = "We closed an $18.5M funding round with top venture investors."
+d13e1 = test_payload("TEST 13e1: FUNDING ROUND CONTEXT", fund_text)
+assert not any('revenue' in f['guidelineTitle'].lower() for f in d13e1['findings']), "Funding round falsely flagged as unverified revenue"
+assert d13e1['complianceScore'] == 100, f"Expected 100, got {d13e1['complianceScore']}"
+
+val_text = "Our current valuation is $18.5M."
+d13e2 = test_payload("TEST 13e2: VALUATION CONTEXT", val_text)
+assert not any('revenue' in f['guidelineTitle'].lower() for f in d13e2['findings']), "Valuation falsely flagged as unverified revenue"
+assert d13e2['complianceScore'] == 100, f"Expected 100, got {d13e2['complianceScore']}"
+
+# 13f: Twitter Channel Length Policy
+twitter_long_text = "Inkloom AI and VeriBrand AI enable distributed marketing teams to scale high-velocity publishing without sacrificing brand integrity. " * 3
+url_tw = 'http://localhost:3000/api/audit'
+payload_tw = json.dumps({'text': twitter_long_text, 'channel': 'twitter'}).encode('utf-8')
+req_tw = urllib.request.Request(url_tw, data=payload_tw, headers={'Content-Type': 'application/json'})
+resp_tw = urllib.request.urlopen(req_tw)
+data_tw = json.loads(resp_tw.read().decode('utf-8'))
+assert any('character limit' in f['guidelineTitle'].lower() for f in data_tw['findings']), "Expected Twitter character limit finding"
+
+# 13g: Press Release Regulatory Elevation
+pr_text = "We are an industry-leading governance platform."
+payload_pr = json.dumps({'text': pr_text, 'channel': 'press_release'}).encode('utf-8')
+req_pr = urllib.request.Request(url_tw, data=payload_pr, headers={'Content-Type': 'application/json'})
+resp_pr = urllib.request.urlopen(req_pr)
+data_pr = json.loads(resp_pr.read().decode('utf-8'))
+assert any(f['severity'] == 'critical' and 'press release policy' in f['explanation'].lower() for f in data_pr['findings']), "Expected critical severity elevation for press release"
+
+print("-> TEST 13 PASSED: Edge case claim & governance invariants verified (retention numerical comparison, bidirectional negation, flexible SLA phrasing, funding/valuation context awareness, channel-specific Twitter/PR policies)!")
+
+print("\nALL 13 VERIFICATION TESTS PASSED CLEANLY!")

@@ -113,12 +113,25 @@ python test_adversarial.py
 
 To facilitate frictionless evaluation, VeriBrand AI features 3 built-in demo scenarios selectable from the header:
 
-1. **Scenario 1: Broken High-Risk Copy (6 Violations)**:
+1. **Scenario 1: High-Risk Copy with Multiple Violations (8 Flags Across Tiers 1 & 2)**:
    - Includes lowercase `"inkloom"`, `"artificial intelligence wizard"`, hyperbolic `"world's most revolutionary"`, contradictory SLA (`99.999%` vs approved `99.9%`), exaggerated customer count (`1,500` vs approved `420+`), conflicting revenue (`$50M` vs audited `$18.5M`), outdated pricing (`$49/mo`), and rogue hex swatch (`#ff0033`).
 2. **Scenario 2: Subtle Borderline Copy (2 Flags)**:
    - Demonstrates nuance: verified metrics pass cleanly, while unverified legal superlatives trigger model abstention.
 3. **Scenario 3: 100% On-Brand Compliant Draft (Green Pass)**:
    - Demonstrates a flawless draft receiving a 100/100 compliance score, ready for 1-click reviewer sign-off.
+
+---
+
+## 🛡️ Enterprise Verification Invariants & Channel Governance
+
+VeriBrand AI enforces rigorous deterministic invariants across both its Next.js and Python engines:
+
+- **Numerical Comparison & Bidirectional Negation**: Metric assertions undergo exact numerical verification against audited Brand Vault disclosures (e.g. 94.2% client retention verified; 94.9% or 95% triggers `CONFLICT`). Preceding and subsequent negations (e.g. `"We do not provide 99.9% uptime"`, `"SOC 2 Type II is no longer active"`) are flagged as critical contractual contradictions.
+- **Context-Aware Financial Classification**: Distinguishes audited Annual Recurring Revenue ($18.5M ARR) from total annual revenue while automatically recognizing non-revenue financial contexts (seed/series funding rounds, corporate valuations, capital investments) without false classification.
+- **Entity Scope Strictness**: Ground truth customer account metrics (`420+ active enterprise customer accounts`) are strictly bound to accounts; assertions quoting "brands" or "organizations" trigger deterministic abstention (`UNVERIFIED`).
+- **Channel-Aware Governance Policies**:
+  - **Twitter / X**: Enforces platform length limits (>280 characters flagged with condensation rewrites).
+  - **Press Releases**: Heightens regulatory scrutiny under SEC/ASCI guidelines, elevating marketing tone warnings and unsubstantiated superlatives to critical severity.
 
 ---
 

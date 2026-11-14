@@ -233,17 +233,25 @@ interface ExtractedClaim {
 function extractClaimsFromText(text: string): ExtractedClaim[] {
   const claims: ExtractedClaim[] = [];
 
-  // 1. Uptime / SLA claims (e.g., "99.999% uptime", "99.9% uptime")
-  const uptimeRegex = /\b(99(?:\.\d+)?%)\s+(?:uptime|availability|SLA)\b/gi;
+  // 1. Uptime SLA claims (e.g., "99.9% uptime", "uptime of 99.999%", "99.999 percent uptime")
+  const uptimeRegex =
+    /(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:enterprise\s+)?(?:system\s+)?(?:uptime|availability|SLA)|(?:uptime|availability|SLA)\s*(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))/gi;
   let match;
   while ((match = uptimeRegex.exec(text)) !== null) {
-    const numStr = match[1].replace('%', '');
+    const numStr = match[1] || match[2];
+    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
+    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
+    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
+    const hasPrecedingNegation = /\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b/i.test(preceding);
+    const hasSubsequentNegation = /\b(?:is\s+not|not\s+guaranteed|no\s+longer|revoked|expired|void|cancelled)\b/i.test(subsequent);
+    const isNegated = (hasPrecedingNegation && !isAffirmativeIdiom) || hasSubsequentNegation;
     claims.push({
-      text: match[0],
+      text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'uptime',
       rawNumber: parseFloat(numStr),
+      isNegated,
     });
   }
 
@@ -277,17 +285,25 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 3. Revenue / ARR claims (distinguish ARR from total annual revenue)
-  const revenueRegex = /\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue)?/gi;
+  // 3. Revenue / ARR claims (distinguish ARR from total annual revenue; ignore funding/valuation)
+  const revenueRegex =
+    /(?:(\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue))|(?:(annual recurring revenue|ARR|annual revenue|total revenue|revenue)\s*(?:of\s+)?\$([0-9.]+)\s*(?:M|million)))/gi;
   while ((match = revenueRegex.exec(text)) !== null) {
-    const rawUnit = (match[2] || '').toLowerCase();
+    const rawDigits = match[2] || match[5];
+    const rawUnit = (match[3] || match[4] || '').toLowerCase();
+    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
+    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
+    const surrounding = `${preceding} ${match[0]} ${subsequent}`.toLowerCase();
+    if (/\b(?:funding|round|seed|series\s+[a-z]|valuation|raised|raising|investors?|investment|capital|venture|equity)\b/i.test(surrounding)) {
+      continue;
+    }
     const isARR = rawUnit.includes('arr') || rawUnit.includes('recurring');
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: isARR ? 'arr' : 'annual_revenue',
-      rawNumber: parseFloat(match[1]),
+      rawNumber: parseFloat(rawDigits),
     });
   }
 
@@ -303,15 +319,24 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 5. Retention claims (e.g. "94.2% enterprise retention")
-  const retentionRegex = /\b(94(?:\.\d+)?%)\s+(?:enterprise client retention|enterprise retention)/gi;
+  // 5. Retention claims (e.g. "94.2% enterprise retention", "94.9% client retention", "95% retention")
+  const retentionRegex =
+    /(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))/gi;
   while ((match = retentionRegex.exec(text)) !== null) {
+    const numStr = match[1] || match[2];
+    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
+    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
+    const hasPrecedingNegation = /\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b/i.test(preceding);
+    const hasSubsequentNegation = /\b(?:is\s+not|no\s+longer|dropped|fallen|void)\b/i.test(subsequent);
+    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
+    const isNegated = (hasPrecedingNegation && !isAffirmativeIdiom) || hasSubsequentNegation;
     claims.push({
-      text: match[0],
+      text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'retention',
-      rawNumber: parseFloat(match[1].replace('%', '')),
+      rawNumber: parseFloat(numStr),
+      isNegated,
     });
   }
 
@@ -383,7 +408,28 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (isExactMatch) {
+      if (claim.isNegated) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `SLA Availability Denial. Draft denies or disclaims approved 99.9% enterprise uptime SLA ("${claim.text}"), contradicting verified A-LIGN Annual Security Attestation (§3).`,
+          guidelineTitle: 'SLA Availability Contradiction',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: 'backed by a 99.9% enterprise uptime SLA',
+            punchy: '99.9% enterprise uptime SLA',
+            conservative: 'holding audited 99.9% service availability SLA',
+          },
+        });
+      } else if (isExactMatch) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -774,34 +820,82 @@ function runTier2ClaimVerification(text: string): {
       }
     } else if (claim.claimType === 'retention') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-001')!;
-      findings.push({
-        id: `T2-CLAIM-${i}`,
-        category: 'claim_verification',
-        verdict: 'VERIFIED',
-        matchedText: claim.text,
-        startIndex: claim.startIndex,
-        endIndex: claim.endIndex,
-        severity: 'success',
-        explanation: `Validated against KPMG Enterprise Quality Audit (94.2% retention).`,
-        guidelineTitle: 'Verified Client Retention Metric',
-        guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
-        authorityLevel: 1,
-        evidence: {
-          metricId: metric.id,
-          metricName: metric.metricName,
-          approvedValue: metric.approvedValue,
-          sourceDocument: metric.sourceDoc,
-          sectionCitation: metric.section,
-          validityPeriod: 'FY25-FY26',
-          lastAuditedDate: '2026-10-15',
-          status: 'active',
-        },
-        rewrites: {
-          direct: '94.2% enterprise retention',
-          punchy: 'audited 94.2% enterprise client retention',
-          conservative: '94.2% client retention rate audited by KPMG',
-        },
-      });
+      const isExactMatch = claim.rawNumber === metric.rawNumber;
+
+      const provenance: EvidenceProvenance = {
+        metricId: metric.id,
+        metricName: metric.metricName,
+        approvedValue: metric.approvedValue,
+        sourceDocument: metric.sourceDoc,
+        sectionCitation: metric.section,
+        validityPeriod: 'FY25-FY26',
+        lastAuditedDate: '2026-10-15',
+        status: 'active',
+      };
+
+      if (claim.isNegated) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Client Retention Denial. Draft denies audited 94.2% enterprise retention ("${claim.text}"), contradicting verified KPMG FY25 Enterprise Quality Audit Report.`,
+          guidelineTitle: 'Client Retention Contradiction',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise client retention rate',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: 'holding audited 94.2% client retention rate (KPMG FY25)',
+          },
+        });
+      } else if (isExactMatch) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'VERIFIED',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'success',
+          explanation: `Validated against KPMG Enterprise Quality Audit (94.2% retention).`,
+          guidelineTitle: 'Verified Client Retention Metric',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise retention',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: '94.2% client retention rate audited by KPMG',
+          },
+        });
+      } else {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Client Retention Metric Discrepancy. Draft asserts "${claim.text}", but KPMG FY25 Enterprise Quality Audit Report (Executive Summary p. 4) officially certifies 94.2% enterprise client retention. Citing unverified retention figures violates enterprise marketing compliance standards.`,
+          guidelineTitle: 'Client Retention Metric Discrepancy',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise retention',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: '94.2% client retention rate audited by KPMG',
+          },
+        });
+      }
     } else if (claim.claimType === 'turnaround') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-005')!;
       const provenance: EvidenceProvenance = {
@@ -860,12 +954,14 @@ function runTier2ClaimVerification(text: string): {
     } else if (claim.claimType === 'security') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
 
-      // Scope-aware negation check: distinguishes "not SOC 2" from affirmative "not only SOC 2"
-      const preceding = text.slice(Math.max(0, claim.startIndex - 30), claim.startIndex).toLowerCase();
-      const fullContext = `${preceding} ${claim.text}`.toLowerCase();
+      // Scope-aware negation check: checks preceding, matched, and subsequent text for negation/revocation
+      const preceding = text.slice(Math.max(0, claim.startIndex - 40), claim.startIndex).toLowerCase();
+      const subsequent = text.slice(claim.endIndex, Math.min(text.length, claim.endIndex + 40)).toLowerCase();
+      const fullContext = `${preceding} ${claim.text} ${subsequent}`.toLowerCase();
       const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\b/i.test(fullContext);
-      const hasNegationWord = /\b(not|never|neither|no|non|unverified|without|lack|lacks)\b/i.test(fullContext);
-      const isNegated = hasNegationWord && !isAffirmativeIdiom;
+      const hasNegationWord = /\b(not|never|neither|no|non|unverified|without|lack|lacks|lacking|failed|cannot)\b/i.test(fullContext);
+      const hasSubsequentNegation = /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|not\s+active|revoked|expired|cancelled|void|suspended|lacks?|without|failed)\b/i.test(subsequent);
+      const isNegated = (hasNegationWord && !isAffirmativeIdiom) || hasSubsequentNegation;
 
       if (isNegated) {
         findings.push({
@@ -971,6 +1067,39 @@ export function auditContent(
   const allFindings = [...t1.findings, ...t2.findings].sort(
     (a, b) => a.startIndex - b.startIndex
   );
+
+  // Channel-Specific Governance Constraints:
+  if (channel === 'twitter' && text.length > 280) {
+    allFindings.push({
+      id: 'T1-CHAN-TWITTER-LEN',
+      category: 'tone_drift',
+      verdict: 'SUGGESTION',
+      matchedText: text.slice(280),
+      startIndex: 280,
+      endIndex: text.length,
+      severity: 'warning',
+      explanation: `Twitter / X Character Limit Exceeded. Draft is ${text.length} characters (standard platform limit is 280 characters). Long posts may be truncated or require X Premium.`,
+      guidelineTitle: 'Platform Character Limit (Twitter / X)',
+      guidelineCitation: 'Brand Social Media Stylebook §2.1 (Channel Constraints)',
+      authorityLevel: 2,
+      rewrites: {
+        direct: 'Condense copy to under 280 characters',
+        punchy: 'Keep social posts brief and punchy',
+        conservative: 'Publish full text on enterprise blog with Twitter summary link',
+      },
+    });
+  }
+
+  if (channel === 'press_release') {
+    for (const f of allFindings) {
+      if (f.severity === 'warning' || f.category === 'tone_drift') {
+        f.severity = 'critical';
+        if (!f.explanation.includes('Press Release Policy')) {
+          f.explanation += ' [Press Release Policy: heightened regulatory scrutiny under SEC/ASCI disclosures].';
+        }
+      }
+    }
+  }
 
   // Compute Compliance Score
   let score = 100;

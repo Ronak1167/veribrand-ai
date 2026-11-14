@@ -381,17 +381,59 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
     start = time.perf_counter()
     findings = []
 
-    # 1. Uptime SLA claims
-    uptime_matches = list(re.finditer(r"\b(99(?:\.\d+)?%)\s+(?:uptime|availability|SLA)\b", text, re.IGNORECASE))
+    # 1. Uptime SLA claims (e.g., "99.9% uptime", "uptime of 99.999%", "99.999 percent uptime")
+    uptime_matches = list(re.finditer(
+        r"(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:enterprise\s+)?(?:system\s+)?(?:uptime|availability|SLA)|(?:uptime|availability|SLA)\s*(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))",
+        text, re.IGNORECASE
+    ))
     for m in uptime_matches:
-        claimed_num = float(m.group(1).replace('%', ''))
+        num_str = m.group(1) or m.group(2)
+        claimed_num = float(num_str)
         metric = VERIFIED_METRICS["MTR-003"]
-        if claimed_num == metric["raw"]:
+        preceding = text[max(0, m.start() - 50):m.start()].lower()
+        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
+        is_affirmative_idiom = bool(re.search(r"\bnot\s+only\b", preceding))
+        has_preceding_negation = bool(re.search(r"\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b", preceding))
+        has_subsequent_negation = bool(re.search(r"\b(?:is\s+not|not\s+guaranteed|no\s+longer|revoked|expired|void|cancelled)\b", subsequent))
+        is_negated = (has_preceding_negation and not is_affirmative_idiom) or has_subsequent_negation
+
+        provenance = {
+            "metric_id": "MTR-003",
+            "metric_name": metric["name"],
+            "approved_value": metric["approved"],
+            "source_document": metric["source"],
+            "section_citation": metric["citation"],
+            "validity_period": metric["validity"],
+            "status": "active"
+        }
+
+        if is_negated:
+            findings.append({
+                "id": f"PY-T2-UPTIME-CONF-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"SLA Availability Denial. Draft denies or disclaims approved 99.9% enterprise uptime SLA ('{m.group(0).strip()}'), contradicting verified A-LIGN Annual Security Attestation (§3).",
+                "guideline_title": "SLA Availability Contradiction",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "backed by a 99.9% enterprise uptime SLA",
+                    "punchy": "99.9% enterprise uptime SLA",
+                    "conservative": "holding audited 99.9% service availability SLA"
+                }
+            })
+        elif claimed_num == metric["raw"]:
             findings.append({
                 "id": f"PY-T2-UPTIME-{m.start()}",
                 "category": "claim_verification",
                 "verdict": "VERIFIED",
-                "matched_text": m.group(0),
+                "matched_text": m.group(0).strip(),
                 "start_index": m.start(),
                 "end_index": m.end(),
                 "severity": "success",
@@ -399,15 +441,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "guideline_title": "Verified SLA Availability Specification",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-003",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
+                "evidence": provenance,
                 "rewrites": {
                     "direct": "99.9% uptime SLA",
                     "punchy": "99.9% enterprise uptime SLA",
@@ -420,23 +454,15 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "category": "claim_verification",
                 "verdict": "CONFLICT",
                 "reason_code": "NUMERICAL_MISMATCH",
-                "matched_text": m.group(0),
+                "matched_text": m.group(0).strip(),
                 "start_index": m.start(),
                 "end_index": m.end(),
                 "severity": "critical",
-                "explanation": f"Contradicts audited SLA. Quoting '{m.group(0)}' when approved SLA is {metric['approved']} breaches customer contracts.",
+                "explanation": f"Contradicts audited SLA. Quoting '{m.group(0).strip()}' when approved SLA is {metric['approved']} breaches customer contracts.",
                 "guideline_title": "SLA False Advertising Violation",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-003",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
+                "evidence": provenance,
                 "rewrites": {
                     "direct": "99.9% uptime SLA",
                     "punchy": "99.9% enterprise uptime SLA",
@@ -667,11 +693,22 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 3. Revenue / ARR (distinguish ARR from total annual revenue)
-    rev_matches = list(re.finditer(r"\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue)?", text, re.IGNORECASE))
+    # 3. Revenue / ARR (distinguish ARR from total annual revenue; ignore funding/valuation)
+    rev_matches = list(re.finditer(
+        r"(?:(\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue))|(?:(annual recurring revenue|ARR|annual revenue|total revenue|revenue)\s*(?:of\s+)?\$([0-9.]+)\s*(?:M|million)))",
+        text, re.IGNORECASE
+    ))
     for m in rev_matches:
-        claimed_num = float(m.group(1))
-        unit_str = (m.group(2) or '').lower()
+        raw_digits = m.group(2) or m.group(5)
+        raw_unit = (m.group(3) or m.group(4) or '').lower()
+        preceding = text[max(0, m.start() - 50):m.start()].lower()
+        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
+        surrounding = f"{preceding} {m.group(0)} {subsequent}".lower()
+        if re.search(r"\b(?:funding|round|seed|series\s+[a-z]|valuation|raised|raising|investors?|investment|capital|venture|equity)\b", surrounding):
+            continue
+
+        claimed_num = float(raw_digits)
+        unit_str = raw_unit
         is_arr = 'arr' in unit_str or 'recurring' in unit_str
         metric = VERIFIED_METRICS["MTR-006"]
         if is_arr:
@@ -837,15 +874,17 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 5. Security & Certifications (with Scope-Aware Negation Handling)
+    # 5. Security & Certifications (with Preceding & Subsequent Negation Handling)
     soc_matches = list(re.finditer(r"\b(?:(?:not(?:\s+only)?|never|no|without)\s+)?SOC 2(?: Type II)?\b", text, re.IGNORECASE))
     for m in soc_matches:
         metric = VERIFIED_METRICS["MTR-002"]
-        preceding = text[max(0, m.start() - 30):m.start()].lower()
-        full_context = f"{preceding} {m.group(0).lower()}"
+        preceding = text[max(0, m.start() - 40):m.start()].lower()
+        subsequent = text[m.end():min(len(text), m.end() + 40)].lower()
+        full_context = f"{preceding} {m.group(0)} {subsequent}".lower()
         is_affirmative_idiom = bool(re.search(r"\bnot\s+(?:only|just|merely)\b", full_context))
-        has_negation = bool(re.search(r"\b(not|never|neither|no|non|unverified|without|lack|lacks)\b", full_context))
-        is_negated = has_negation and not is_affirmative_idiom
+        has_negation = bool(re.search(r"\b(not|never|neither|no|non|unverified|without|lack|lacks|lacking|failed|cannot)\b", full_context))
+        has_subsequent_negation = bool(re.search(r"\b(?:is\s+no\s+longer|no\s+longer|is\s+not|not\s+active|revoked|expired|cancelled|void|suspended|lacks?|without|failed)\b", subsequent))
+        is_negated = (has_negation and not is_affirmative_idiom) or has_subsequent_negation
 
         if is_negated:
             findings.append({
@@ -905,37 +944,94 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 6. Retention (94.2%)
-    ret_matches = list(re.finditer(r"\b(94(?:\.\d+)?%)\s+(?:enterprise client retention|enterprise retention)", text, re.IGNORECASE))
+    # 6. Retention (e.g. 94.2% verified, 94.9%/95% conflict, negation check)
+    ret_matches = list(re.finditer(
+        r"(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))",
+        text, re.IGNORECASE
+    ))
     for m in ret_matches:
+        num_str = m.group(1) or m.group(2)
+        claimed_num = float(num_str)
         metric = VERIFIED_METRICS["MTR-001"]
-        findings.append({
-            "id": f"PY-T2-RET-{m.start()}",
-            "category": "claim_verification",
-            "verdict": "VERIFIED",
-            "matched_text": m.group(0),
-            "start_index": m.start(),
-            "end_index": m.end(),
-            "severity": "success",
-            "explanation": "Validated against KPMG Enterprise Quality Audit (94.2% retention).",
-            "guideline_title": "Verified Client Retention Metric",
-            "guideline_citation": f"{metric['source']} — {metric['citation']}",
-            "authority_level": 1,
-            "evidence": {
-                "metric_id": "MTR-001",
-                "metric_name": metric["name"],
-                "approved_value": metric["approved"],
-                "source_document": metric["source"],
-                "section_citation": metric["citation"],
-                "validity_period": metric["validity"],
-                "status": "active"
-            },
-            "rewrites": {
-                "direct": "94.2% enterprise retention",
-                "punchy": "audited 94.2% enterprise client retention",
-                "conservative": "94.2% client retention rate audited by KPMG"
-            }
-        })
+        preceding = text[max(0, m.start() - 50):m.start()].lower()
+        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
+        has_preceding_negation = bool(re.search(r"\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b", preceding))
+        has_subsequent_negation = bool(re.search(r"\b(?:is\s+not|no\s+longer|dropped|fallen|void)\b", subsequent))
+        is_affirmative_idiom = bool(re.search(r"\bnot\s+only\b", preceding))
+        is_negated = (has_preceding_negation and not is_affirmative_idiom) or has_subsequent_negation
+
+        provenance = {
+            "metric_id": "MTR-001",
+            "metric_name": metric["name"],
+            "approved_value": metric["approved"],
+            "source_document": metric["source"],
+            "section_citation": metric["citation"],
+            "validity_period": metric["validity"],
+            "status": "active"
+        }
+
+        if is_negated:
+            findings.append({
+                "id": f"PY-T2-RET-CONF-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"Client Retention Denial. Draft denies audited 94.2% enterprise retention ('{m.group(0).strip()}'), contradicting verified KPMG FY25 Enterprise Quality Audit Report.",
+                "guideline_title": "Client Retention Contradiction",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise client retention rate",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "holding audited 94.2% client retention rate (KPMG FY25)"
+                }
+            })
+        elif claimed_num == metric["raw"]:
+            findings.append({
+                "id": f"PY-T2-RET-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "VERIFIED",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "success",
+                "explanation": "Validated against KPMG Enterprise Quality Audit (94.2% retention).",
+                "guideline_title": "Verified Client Retention Metric",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise retention",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "94.2% client retention rate audited by KPMG"
+                }
+            })
+        else:
+            findings.append({
+                "id": f"PY-T2-RET-CONF-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"Client Retention Metric Discrepancy. Draft asserts '{m.group(0).strip()}', but KPMG FY25 Enterprise Quality Audit Report (Executive Summary p. 4) officially certifies 94.2% enterprise client retention. Citing unverified retention figures violates enterprise marketing compliance standards.",
+                "guideline_title": "Client Retention Metric Discrepancy",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise retention",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "94.2% client retention rate audited by KPMG"
+                }
+            })
 
     # 7. Turnaround reduction (75% projected target, e.g. "turnaround by up to 75%", "review turnaround reduction of up to 75%")
     turn_matches = list(re.finditer(r"(?:(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?\s+(?:by\s+|of\s+)?up\s+to\s+75%|up\s+to\s+75%\s+(?:routine\s+)?(?:review\s+)?turnaround(?:\s+reduction)?)", text, re.IGNORECASE))
@@ -1038,6 +1134,34 @@ def audit_document(text: str, channel: str = "enterprise_web") -> Dict[str, Any]
     t2_findings, t2_lat = run_tier2_claim_verifier(text)
 
     all_findings = sorted(t1_findings + t2_findings, key=lambda x: x["start_index"])
+
+    # Channel-Specific Governance Constraints:
+    if channel == "twitter" and len(text) > 280:
+        all_findings.append({
+            "id": "PY-CHAN-TWITTER-LEN",
+            "category": "tone_drift",
+            "verdict": "SUGGESTION",
+            "matched_text": text[280:],
+            "start_index": 280,
+            "end_index": len(text),
+            "severity": "warning",
+            "explanation": f"Twitter / X Character Limit Exceeded. Draft is {len(text)} characters (standard platform limit is 280 characters). Long posts may be truncated or require X Premium.",
+            "guideline_title": "Platform Character Limit (Twitter / X)",
+            "guideline_citation": "Brand Social Media Stylebook §2.1 (Channel Constraints)",
+            "authority_level": 2,
+            "rewrites": {
+                "direct": "Condense copy to under 280 characters",
+                "punchy": "Keep social posts brief and punchy",
+                "conservative": "Publish full text on enterprise blog with Twitter summary link"
+            }
+        })
+
+    if channel == "press_release":
+        for f in all_findings:
+            if f.get("severity") == "warning" or f["category"] == "tone_drift":
+                f["severity"] = "critical"
+                if "Press Release Policy" not in f["explanation"]:
+                    f["explanation"] += " [Press Release Policy: heightened regulatory scrutiny under SEC/ASCI disclosures]."
 
     score = 100
     verified_count = 0
