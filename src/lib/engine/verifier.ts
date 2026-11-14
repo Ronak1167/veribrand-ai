@@ -72,11 +72,11 @@ function generateRuleRewrites(
     };
   }
 
-  // Tone drift / superlatives
+  // Tone drift / superlatives: grounded, non-hyperbolic alternatives that make zero unverified claims
   return {
-    direct: 'industry-recognized brand platform',
-    punchy: 'leading enterprise governance co-pilot',
-    conservative: 'audited pre-publication brand compliance system',
+    direct: 'enterprise brand governance platform',
+    punchy: 'purpose-built governance co-pilot',
+    conservative: 'pre-publication brand compliance system',
   };
 }
 
@@ -179,6 +179,8 @@ interface ExtractedClaim {
   claimType: 'uptime' | 'customers' | 'revenue' | 'arr' | 'annual_revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric';
   rawNumber?: number;
   isTargetFraming?: boolean;
+  isLowerBound?: boolean;
+  isNegated?: boolean;
 }
 
 function extractClaimsFromText(text: string): ExtractedClaim[] {
@@ -198,16 +200,31 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 2. Customer counts (e.g. "over 1,500 enterprise customers", "100 enterprise customers", "420+ enterprise organizations", "at least 420 enterprise customer accounts")
-  const customerRegex = /(?:over|more than|at least|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)/gi;
+  // 2. Customer counts (e.g. "420+ enterprise customers", "at least 420 enterprise customer accounts", "100 enterprise customers", "We do not have 420+ enterprise customers")
+  const customerRegex =
+    /(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(?:customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+customer\s+accounts)\b/gi;
   while ((match = customerRegex.exec(text)) !== null) {
-    const rawDigits = match[1].replace(/,/g, '');
+    const prefix = (match[1] || '').toLowerCase();
+    const rawDigits = match[2].replace(/,/g, '');
+    const hasPlus = Boolean(match[3]);
+    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
+    const isNegated =
+      /\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b/i.test(
+        preceding
+      );
+    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
+    const isTrueNegated = isNegated && !isAffirmativeIdiom;
+    const isLowerBound =
+      (hasPlus || ['over', 'more than', 'at least'].includes(prefix)) && prefix !== 'exactly';
+
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'customers',
       rawNumber: parseInt(rawDigits, 10),
+      isLowerBound,
+      isNegated: isTrueNegated,
     });
   }
 
@@ -374,7 +391,29 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (count < 420) {
+      if (claim.isNegated) {
+        // Direct contradiction: denying audited customer account disclosures
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Negated Customer Disclosure. Draft asserts "${claim.text}", denying the audited shareholder disclosure certifying ${metric.approvedValue} active accounts. Falsely denying audited regulatory disclosures violates reporting compliance.`,
+          guidelineTitle: 'Customer Count Contradiction',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
+          },
+        });
+      } else if (count < 420) {
         // True Deficit Contradiction (< 420 understates the audited 420+ baseline)
         findings.push({
           id: `T2-CLAIM-${i}`,
@@ -393,11 +432,11 @@ function runTier2ClaimVerification(text: string): {
           rewrites: {
             direct: '420+ active enterprise customer accounts',
             punchy: 'trusted by 420+ enterprise customer accounts',
-            conservative: 'over 420 active enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
           },
         });
-      } else if (count === 420) {
-        // Certified lower bound baseline (420 or 420+)
+      } else if (count === 420 && claim.isLowerBound) {
+        // Certified lower bound baseline ("420+", "at least 420", "over 420")
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -414,7 +453,29 @@ function runTier2ClaimVerification(text: string): {
           rewrites: {
             direct: '420+ active enterprise customer accounts',
             punchy: 'trusted by 420+ enterprise customer accounts',
-            conservative: 'over 420 active enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
+          },
+        });
+      } else if (count === 420 && !claim.isLowerBound) {
+        // Exact number 420 asserted (e.g. "exactly 420", bare "420") -> UNVERIFIED exact count
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Exact Customer Count Assertion. Draft asserts an exact count of "${claim.text}". The certified ground truth establishes a lower bound of 420+ active enterprise customer accounts, not an exact count. Stating an exact count requires updated audit certification.`,
+          guidelineTitle: 'Unverified Exact Customer Count',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: 'trusted by 420+ enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
           },
         });
       } else if (count < 1000) {

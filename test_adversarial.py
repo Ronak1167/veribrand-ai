@@ -91,7 +91,25 @@ assert any(f['verdict'] == 'CONFLICT' and 'customer count discrepancy' in f['gui
 cust_1500_text = "With over 1,500 enterprise customers across the globe."
 d8d = test_payload("TEST 8d: HIGHER CUSTOMER COUNT 1,500 (>= 1,000 UNVERIFIED)", cust_1500_text)
 assert any(f['verdict'] == 'UNVERIFIED' and 'higher customer count' in f['guidelineTitle'].lower() for f in d8d['findings']), "Expected UNVERIFIED on 1,500 customers"
-print("-> TEST 8 PASSED: Customer count semantics strictly enforced (420+ VERIFIED, 421/600 exact UNVERIFIED, 419 deficit CONFLICT, 1,500 unverified higher count UNVERIFIED)!")
+
+# 8e: Negated 420+ count: "We do not have 420+ enterprise customers." -> CONFLICT (Customer Count Contradiction)
+cust_neg_text = "We do not have 420+ enterprise customers."
+d8e = test_payload("TEST 8e: NEGATED CUSTOMER COUNT (CUSTOMER CONTRADICTION)", cust_neg_text)
+assert any(f['verdict'] == 'CONFLICT' and 'contradiction' in f['guidelineTitle'].lower() for f in d8e['findings']), "Expected CONFLICT on negated 420+ customers"
+
+# 8f: Exact 420 count: "We have exactly 420 enterprise customers." -> UNVERIFIED (Unverified Exact Customer Count)
+cust_exact420_text = "We have exactly 420 enterprise customers."
+d8f = test_payload("TEST 8f: EXPLICIT EXACT CUSTOMER COUNT 420 (UNVERIFIED EXACT COUNT)", cust_exact420_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'exact customer count' in f['guidelineTitle'].lower() for f in d8f['findings']), "Expected UNVERIFIED on exactly 420"
+assert not any(f['verdict'] == 'CONFLICT' for f in d8f['findings']), "False CONFLICT on exactly 420"
+
+# 8g: Bare 420 count: "We have 420 enterprise customers." -> UNVERIFIED (Unverified Exact Customer Count)
+cust_bare420_text = "We have 420 enterprise customers."
+d8g = test_payload("TEST 8g: BARE CUSTOMER COUNT 420 (UNVERIFIED EXACT COUNT)", cust_bare420_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'exact customer count' in f['guidelineTitle'].lower() for f in d8g['findings']), "Expected UNVERIFIED on bare 420"
+assert not any(f['verdict'] == 'CONFLICT' for f in d8g['findings']), "False CONFLICT on bare 420"
+
+print("-> TEST 8 PASSED: Customer count semantics strictly enforced (420+ VERIFIED, 421/600 exact UNVERIFIED, 419 deficit CONFLICT, 1,500 unverified higher count UNVERIFIED, negated CONFLICT, exactly/bare 420 UNVERIFIED)!")
 
 # Test 9: Turnaround Reduction Framing (Projected / Target Qualified vs Unqualified Outcome Assertion)
 # 9a: Qualified target -> VERIFIED

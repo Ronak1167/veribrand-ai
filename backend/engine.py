@@ -135,7 +135,7 @@ BRAND_RULES = [
             "zero risk",
             "guaranteed 100%",
         ],
-        "approved": "industry-leading, empirical brand governance engine",
+        "approved": "enterprise brand governance platform",
         "title": "Hyperbolic Unsubstantiated Superlatives",
         "category": "tone_drift",
         "severity": "critical",
@@ -295,8 +295,8 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "authority_level": rule["authority"],
             "rewrites": {
                 "direct": rule["approved"],
-                "punchy": f"{rule['approved']} (verified)",
-                "conservative": f"{rule['approved']} enterprise standard"
+                "punchy": f"{rule['approved']}",
+                "conservative": f"compliant {rule['approved']}"
             }
         })
 
@@ -395,12 +395,54 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; lower-bound 420+ verified; <420 is CONFLICT, exact 421-999 or >=1000 is UNVERIFIED)
-    cust_matches = list(re.finditer(r"(?:over|more than|at least|supports|with)?\s*([0-9,]+)\+?\s+(?:enterprise customers|global enterprise brands|enterprise organizations|active enterprise customer accounts|enterprise accounts)", text, re.IGNORECASE))
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; lower-bound 420+ verified; negated or <420 is CONFLICT, exact 420/421-999 or >=1000 is UNVERIFIED)
+    cust_matches = list(re.finditer(
+        r"(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(?:customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+customer\s+accounts)\b",
+        text,
+        re.IGNORECASE
+    ))
     for m in cust_matches:
-        claimed_num = int(m.group(1).replace(',', ''))
+        prefix = (m.group(1) or '').lower()
+        claimed_num = int(m.group(2).replace(',', ''))
+        has_plus = bool(m.group(3))
+        preceding = text[max(0, m.start() - 50):m.start()].lower()
+        is_negated = bool(re.search(r"\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b", preceding, re.IGNORECASE))
+        is_affirmative = bool(re.search(r"\bnot\s+only\b", preceding, re.IGNORECASE))
+        true_negated = is_negated and not is_affirmative
+        is_lower_bound = (has_plus or prefix in ['over', 'more than', 'at least']) and prefix != 'exactly'
+
         metric = VERIFIED_METRICS["MTR-004"]
-        if claimed_num < 420:
+
+        if true_negated:
+            findings.append({
+                "id": f"PY-T2-CUST-CONF-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "CONFLICT",
+                "reason_code": "NUMERICAL_MISMATCH",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "critical",
+                "explanation": f"Negated Customer Disclosure. Draft asserts '{m.group(0).strip()}', denying the audited shareholder disclosure certifying {metric['approved']} active accounts. Falsely denying audited regulatory disclosures violates reporting compliance.",
+                "guideline_title": "Customer Count Contradiction",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif claimed_num < 420:
             findings.append({
                 "id": f"PY-T2-CUST-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -426,10 +468,10 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
                     "punchy": "trusted by 420+ enterprise customer accounts",
-                    "conservative": "over 420 active enterprise customer accounts"
+                    "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
-        elif claimed_num == 420:
+        elif claimed_num == 420 and is_lower_bound:
             findings.append({
                 "id": f"PY-T2-CUST-{m.start()}",
                 "category": "claim_verification",
@@ -454,7 +496,36 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "rewrites": {
                     "direct": "420+ active enterprise customer accounts",
                     "punchy": "trusted by 420+ enterprise customer accounts",
-                    "conservative": "over 420 active enterprise customer accounts"
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif claimed_num == 420 and not is_lower_bound:
+            findings.append({
+                "id": f"PY-T2-CUST-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Exact Customer Count Assertion. Draft asserts an exact count of '{m.group(0).strip()}'. The certified ground truth establishes a lower bound of 420+ active enterprise customer accounts, not an exact count. Stating an exact count requires updated audit certification.",
+                "guideline_title": "Unverified Exact Customer Count",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
                 }
             })
         elif claimed_num < 1000:

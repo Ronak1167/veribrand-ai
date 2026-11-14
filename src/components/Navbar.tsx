@@ -120,6 +120,62 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Mobile Navigation Bar */}
+      <nav aria-label="Mobile Navigation" className="flex md:hidden items-center justify-around px-2 py-2 border-t border-slate-800 bg-slate-900/95 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('editor')}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'editor'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+          }`}
+        >
+          <FileText className="w-3.5 h-3.5" />
+          <span>Studio</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('reviewer')}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all relative ${
+            activeTab === 'reviewer'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+          }`}
+        >
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          <span>Queue</span>
+          {pendingReviewsCount > 0 && (
+            <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-rose-500 text-white font-bold">
+              {pendingReviewsCount}
+            </span>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab('heatmap')}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'heatmap'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+          }`}
+        >
+          <Flame className="w-3.5 h-3.5 text-amber-400" />
+          <span>Heatmap</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('vault')}
+          className={`flex items-center space-x-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+            activeTab === 'vault'
+              ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+              : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
+          }`}
+        >
+          <Database className="w-3.5 h-3.5 text-cyan-400" />
+          <span>Vault</span>
+        </button>
+      </nav>
     </header>
   );
 };

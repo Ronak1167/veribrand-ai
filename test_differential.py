@@ -80,6 +80,13 @@ SHARED_CORPUS = [
         "channel": "press_release",
         "expected_score_min": 95,
         "expect_zero_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 9: Negated Customer Count Contradiction",
+        "text": "We do not have 420+ enterprise customers with 99.9% uptime.",
+        "channel": "enterprise_web",
+        "expected_score_max": 85,
+        "expect_conflicts": True
     }
 ]
 
@@ -147,6 +154,13 @@ def run_differential_suite():
         py_verdicts = sorted([f["verdict"] for f in py_res["findings"]])
         if ts_verdicts != py_verdicts:
             print(f"    ERROR: Verdict distributions do not match (TS: {ts_verdicts}, PY: {py_verdicts})")
+            all_passed = False
+
+        # Finding-level granularity: compare matched texts, categories, and verdicts
+        ts_tuples = sorted([(f.get("matchedText", "").strip().lower(), f.get("category", "").lower(), f["verdict"]) for f in ts_res["findings"]])
+        py_tuples = sorted([(f.get("matched_text", "").strip().lower(), f.get("category", "").lower(), f["verdict"]) for f in py_res["findings"]])
+        if ts_tuples != py_tuples:
+            print(f"    ERROR: Finding-level tuples do not match:\n      TS: {ts_tuples}\n      PY: {py_tuples}")
             all_passed = False
 
         if item.get("expect_zero_conflicts"):
