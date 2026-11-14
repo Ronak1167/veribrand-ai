@@ -240,10 +240,12 @@ for cat_name, test_text in rewrite_corpus:
                     assert not any(past in rw_lower for past in ['achieved', 'delivered', 'guaranteed']), \
                         f"Historical performance claimed in [{tone}]: '{rw}'"
 
-                # 5. SLA cannot become a broader unconditional guarantee
+                # 5. SLA cannot become a broader unconditional guarantee or uncontracted scope expansion
                 if 'SLA' in title:
-                    assert 'guaranteed 100%' not in rw_lower and 'unconditional' not in rw_lower, \
-                        f"SLA transformed into unconditional guarantee in [{tone}]: '{rw}'"
+                    assert 'sla' in rw_lower, f"Contractual SLA qualification missing in [{tone}]: '{rw}'"
+                    for unapproved in ['guarantee', 'guaranteeing', 'guaranteed', 'unconditional', '100%', 'zero downtime', 'for all users']:
+                        assert unapproved not in rw_lower, \
+                            f"SLA transformed into broader guarantee or scope expansion ('{unapproved}') in [{tone}]: '{rw}'"
 
 print(f"-> TEST 12 PASSED: Cross-category rewrite safety & semantic invariant suite audited {total_rewrites_audited} rewrite variants across all 8 categories with zero unverified compliance claims, fake badges, hyperbolic modifiers, or metric-category mismatches!")
 
