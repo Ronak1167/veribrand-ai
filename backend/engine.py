@@ -147,6 +147,10 @@ BRAND_RULES = [
             "better than every competitor",
             "the best brand governance platform",
             "market best",
+            "industry-verified",
+            "industry verified",
+            "market-verified",
+            "market verified",
         ],
         "approved": "enterprise brand governance platform",
         "title": "Hyperbolic Unsubstantiated Superlatives",
@@ -291,6 +295,12 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
         candidate_full = text[start_idx:start_idx + len(rule["approved"])]
         if original_slice == rule["approved"] or candidate_full == rule["approved"]:
             continue
+
+        # Negation check for tone drift rules (e.g. "we are not an industry-leading platform")
+        if rule["category"] == "tone_drift":
+            preceding = text[max(0, start_idx - 25):start_idx]
+            if re.search(r"\b(?:not|never|neither|no)\s+(?:an?\s+|the\s+)?$", preceding, re.IGNORECASE):
+                continue
 
         seen_spans.add(span_key)
         matched_lower = original_slice.lower()

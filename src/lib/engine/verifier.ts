@@ -148,6 +148,15 @@ function runTier1DeterministicScan(text: string): {
         }
       }
 
+      // Negation check for tone drift rules (e.g. "we are not an industry-leading platform")
+      // Explicit negation of hyperbolic claim disclaims the superlative rather than asserting it
+      if (rule.category === 'tone_drift') {
+        const preceding = text.slice(Math.max(0, m.start - 25), m.start);
+        if (/\b(?:not|never|neither|no)\s+(?:an?\s+|the\s+)?$/i.test(preceding)) {
+          continue;
+        }
+      }
+
       findings.push({
         id: `T1-R-${i}-${m.start}`,
         category: rule.category,

@@ -162,18 +162,28 @@ assert d11c['complianceScore'] == 100, f"Expected 100, got {d11c['complianceScor
 sup_exp_text = "Our platform is better than every competitor and is the best brand governance platform on the market."
 d11d = test_payload("TEST 11d: EXPANDED SUPERLATIVES", sup_exp_text)
 assert any('superlative' in f['guidelineTitle'].lower() or 'tone' in f['category'].lower() for f in d11d['findings']), "Expected flag on expanded superlatives"
-print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading', expanded superlatives) caught; objective phrasing approved!")
 
-# Test 12: Terminology Rewrite Safety Verification
+# 11e: Negated superlative ("We are not an industry-leading platform.") -> NOT FLAGGED (Negation awareness eliminates false positives)
+sup_neg_text = "We are not an industry-leading platform."
+d11e = test_payload("TEST 11e: NEGATED SUPERLATIVE (AVOID FALSE POSITIVE)", sup_neg_text)
+assert not any('superlative' in f['guidelineTitle'].lower() for f in d11e['findings']), "Negated superlative falsely flagged"
+
+# 11f: Unsupported modifier ("industry-verified") -> FLAGGED
+sup_mod_text = "Our platform is industry-verified and has a 94.2% enterprise client retention rate."
+d11f = test_payload("TEST 11f: UNSUPPORTED MODIFIER 'INDUSTRY-VERIFIED'", sup_mod_text)
+assert any('industry-verified' in f['matchedText'].lower() for f in d11f['findings']), "Expected flag on 'industry-verified'"
+print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading', expanded, unsupported modifiers) caught; negation false positives eliminated; objective phrasing approved!")
+
+# Test 12: Limited Terminology Rewrite Regression Check (Safety Audit)
 # Flagging 'inkloom' and 'magic algorithm' must generate rewrites free of unverified claims, '(verified)', and 'Enterprise Standard'
 rewrite_test_text = "Our team uses inkloom and our magic algorithm to review copy."
-d12 = test_payload("TEST 12: TERMINOLOGY REWRITE SAFETY AUDIT", rewrite_test_text)
+d12 = test_payload("TEST 12: LIMITED TERMINOLOGY REWRITE REGRESSION CHECK", rewrite_test_text)
 for f in d12['findings']:
     if 'rewrites' in f and f['rewrites']:
         for tone, rw in f['rewrites'].items():
             assert '(verified)' not in rw.lower(), f"Unsafe rewrite found '(verified)' in {tone}: {rw}"
             assert 'enterprise standard' not in rw.lower(), f"Unsafe rewrite found 'enterprise standard' in {tone}: {rw}"
             assert 'industry-leading' not in rw.lower(), f"Unsafe rewrite found 'industry-leading' in {tone}: {rw}"
-print("-> TEST 12 PASSED: Terminology rewrites verified 100% evidence-safe without added assertions or fake badges!")
+print("-> TEST 12 PASSED: Terminology rewrite regression check passed (verified absence of fake badges and synthetic assertions in tested rewrites).")
 
 print("\nALL 12 VERIFICATION TESTS PASSED CLEANLY!")
