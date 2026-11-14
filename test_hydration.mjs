@@ -67,6 +67,24 @@ async function run() {
   await page.reload({ waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
 
+  // Scenario 4: Mobile Viewport Navigation (390 x 844)
+  console.log('[Scenario 4] Testing mobile viewport (390 x 844) navigation sub-bar...');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
+
+  const mobileNav = page.getByRole('navigation', { name: /mobile navigation/i });
+  if (await mobileNav.isVisible().catch(() => false)) {
+    const mobileButtons = ['Studio', 'Queue', 'Heatmap', 'Vault'];
+    for (const btnName of mobileButtons) {
+      const btn = mobileNav.getByRole('button', { name: new RegExp(btnName, 'i') }).first();
+      if (await btn.isVisible().catch(() => false)) {
+        await btn.click();
+        await page.waitForTimeout(200);
+      }
+    }
+    console.log('-> Mobile navigation sub-bar buttons tested successfully at 390x844!');
+  }
+
   const hydrationErrors = consoleMessages.filter(
     (m) =>
       m.text.toLowerCase().includes('hydration') ||

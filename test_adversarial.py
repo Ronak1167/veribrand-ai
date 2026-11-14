@@ -123,4 +123,52 @@ d9b = test_payload("TEST 9b: UNQUALIFIED TURNAROUND OUTCOME ASSERTION", turn_unq
 assert any(f['verdict'] == 'UNVERIFIED' and 'unqualified operational target' in f['guidelineTitle'].lower() for f in d9b['findings']), "Expected UNVERIFIED for unqualified turnaround claim"
 print("-> TEST 9 PASSED: Turnaround reduction phrasing & qualified target framing verified!")
 
-print("\nALL 9 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 10: Entity Scope Enforcement (Customer Account Evidence vs Brands / Organizations)
+# 10a: Brands entity is NOT covered by customer accounts evidence -> UNVERIFIED
+entity_brands_text = "Our platform serves 420+ global enterprise brands."
+d10a = test_payload("TEST 10a: ENTITY SCOPE 'BRANDS' (UNVERIFIED ENTITY METRIC)", entity_brands_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'entity' in f['guidelineTitle'].lower() for f in d10a['findings']), "Expected UNVERIFIED for brands entity"
+assert not any(f['verdict'] == 'VERIFIED' for f in d10a['findings']), "False VERIFIED on brands entity"
+
+# 10b: Organizations entity is NOT covered by customer accounts evidence -> UNVERIFIED
+entity_orgs_text = "Our platform supports 420+ enterprise organizations."
+d10b = test_payload("TEST 10b: ENTITY SCOPE 'ORGANIZATIONS' (UNVERIFIED ENTITY METRIC)", entity_orgs_text)
+assert any(f['verdict'] == 'UNVERIFIED' and 'entity' in f['guidelineTitle'].lower() for f in d10b['findings']), "Expected UNVERIFIED for organizations entity"
+assert not any(f['verdict'] == 'VERIFIED' for f in d10b['findings']), "False VERIFIED on organizations entity"
+
+# 10c: Customers entity IS covered by customer accounts evidence -> VERIFIED
+entity_cust_text = "Our platform serves 420+ active enterprise customer accounts."
+d10c = test_payload("TEST 10c: ENTITY SCOPE 'CUSTOMER ACCOUNTS' (VERIFIED)", entity_cust_text)
+assert any(f['verdict'] == 'VERIFIED' and 'customer' in f['guidelineTitle'].lower() for f in d10c['findings']), "Expected VERIFIED for customer accounts"
+print("-> TEST 10 PASSED: Entity scope strictly enforced (brands/orgs UNVERIFIED, customer accounts VERIFIED)!")
+
+# Test 11: Unsubstantiated Superlative Gap Closure ("industry-leading", "the leading")
+# 11a: "industry-leading" -> FLAGGED
+sup_ind_text = "We are an industry-leading brand governance platform."
+d11a = test_payload("TEST 11a: UNSUBSTANTIATED SUPERLATIVE 'INDUSTRY-LEADING'", sup_ind_text)
+assert any('superlative' in f['guidelineTitle'].lower() or 'tone' in f['category'].lower() for f in d11a['findings']), "Expected flag on 'industry-leading'"
+
+# 11b: "the leading" -> FLAGGED
+sup_lead_text = "We are the leading enterprise brand governance platform."
+d11b = test_payload("TEST 11b: UNSUBSTANTIATED SUPERLATIVE 'THE LEADING'", sup_lead_text)
+assert any('superlative' in f['guidelineTitle'].lower() or 'tone' in f['category'].lower() for f in d11b['findings']), "Expected flag on 'the leading'"
+
+# 11c: Grounded objective statement -> 100/100
+sup_clean_text = "We provide an enterprise brand governance platform with SOC 2 Type II certification."
+d11c = test_payload("TEST 11c: GROUNDED OBJECTIVE PHRASING", sup_clean_text)
+assert d11c['complianceScore'] == 100, f"Expected 100, got {d11c['complianceScore']}"
+print("-> TEST 11 PASSED: Unsubstantiated superlatives ('industry-leading', 'the leading') caught; objective phrasing approved!")
+
+# Test 12: Terminology Rewrite Safety Verification
+# Flagging 'inkloom' and 'magic algorithm' must generate rewrites free of unverified claims, '(verified)', and 'Enterprise Standard'
+rewrite_test_text = "Our team uses inkloom and our magic algorithm to review copy."
+d12 = test_payload("TEST 12: TERMINOLOGY REWRITE SAFETY AUDIT", rewrite_test_text)
+for f in d12['findings']:
+    if 'rewrites' in f and f['rewrites']:
+        for tone, rw in f['rewrites'].items():
+            assert '(verified)' not in rw.lower(), f"Unsafe rewrite found '(verified)' in {tone}: {rw}"
+            assert 'enterprise standard' not in rw.lower(), f"Unsafe rewrite found 'enterprise standard' in {tone}: {rw}"
+            assert 'industry-leading' not in rw.lower(), f"Unsafe rewrite found 'industry-leading' in {tone}: {rw}"
+print("-> TEST 12 PASSED: Terminology rewrites verified 100% evidence-safe without added assertions or fake badges!")
+
+print("\nALL 12 VERIFICATION TESTS PASSED CLEANLY!")

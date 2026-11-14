@@ -57,10 +57,32 @@ function generateRuleRewrites(
   ruleCategory: string
 ): RewriteAlternatives {
   if (ruleCategory === 'terminology') {
+    const lower = matchedText.toLowerCase();
+    if (lower.includes('inkloom') || lower.includes('ink loom')) {
+      return {
+        direct: 'Inkloom AI',
+        punchy: 'Inkloom AI',
+        conservative: 'Inkloom AI',
+      };
+    }
+    if (lower.includes('veribrand') || lower.includes('verybrand')) {
+      return {
+        direct: 'VeriBrand AI',
+        punchy: 'VeriBrand AI',
+        conservative: 'VeriBrand AI',
+      };
+    }
+    if (lower.includes('wizard') || lower.includes('magic') || lower.includes('algorithm') || lower.includes('sauce')) {
+      return {
+        direct: 'explainable compliance co-pilot',
+        punchy: 'governance co-pilot',
+        conservative: 'compliance verification engine',
+      };
+    }
     return {
       direct: approvedAlternative,
-      punchy: `${approvedAlternative} (verified)`,
-      conservative: `${approvedAlternative} Enterprise Standard`,
+      punchy: approvedAlternative,
+      conservative: approvedAlternative,
     };
   }
 
@@ -72,11 +94,27 @@ function generateRuleRewrites(
     };
   }
 
-  // Tone drift / superlatives: grounded, non-hyperbolic alternatives that make zero unverified claims
+  if (ruleCategory === 'tone_drift') {
+    const lower = matchedText.toLowerCase();
+    if (lower.includes('replace') || lower.includes('eliminate') || lower.includes('no human')) {
+      return {
+        direct: 'empowers brand teams with automated pre-screening while maintaining human oversight',
+        punchy: 'co-pilots brand reviews alongside human editors',
+        conservative: 'augments editorial staff with structured pre-publication compliance checks',
+      };
+    }
+    // Tone drift / superlatives (RULE-TONE-04): grounded, non-hyperbolic alternatives that make zero unverified claims
+    return {
+      direct: 'enterprise brand governance platform',
+      punchy: 'purpose-built governance co-pilot',
+      conservative: 'pre-publication brand compliance system',
+    };
+  }
+
   return {
-    direct: 'enterprise brand governance platform',
-    punchy: 'purpose-built governance co-pilot',
-    conservative: 'pre-publication brand compliance system',
+    direct: approvedAlternative,
+    punchy: approvedAlternative,
+    conservative: approvedAlternative,
   };
 }
 
@@ -176,7 +214,7 @@ interface ExtractedClaim {
   text: string;
   startIndex: number;
   endIndex: number;
-  claimType: 'uptime' | 'customers' | 'revenue' | 'arr' | 'annual_revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric';
+  claimType: 'uptime' | 'customers' | 'revenue' | 'arr' | 'annual_revenue' | 'pricing' | 'survey' | 'retention' | 'security' | 'turnaround' | 'unsupported_metric' | 'unverified_entity';
   rawNumber?: number;
   isTargetFraming?: boolean;
   isLowerBound?: boolean;
@@ -200,13 +238,15 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 2. Customer counts (e.g. "420+ enterprise customers", "at least 420 enterprise customer accounts", "100 enterprise customers", "We do not have 420+ enterprise customers")
+  // 2. Customer counts vs Brand/Org counts
   const customerRegex =
-    /(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(?:customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+customer\s+accounts)\b/gi;
+    /(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+(customer\s+accounts))\b/gi;
   while ((match = customerRegex.exec(text)) !== null) {
     const prefix = (match[1] || '').toLowerCase();
     const rawDigits = match[2].replace(/,/g, '');
     const hasPlus = Boolean(match[3]);
+    const rawEntity = (match[4] || match[5] || '').toLowerCase().replace(/\s+/g, ' ');
+    const isBrandOrOrg = rawEntity === 'brands' || rawEntity === 'organizations';
     const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
     const isNegated =
       /\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b/i.test(
@@ -221,7 +261,7 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
-      claimType: 'customers',
+      claimType: isBrandOrOrg ? 'unverified_entity' : 'customers',
       rawNumber: parseInt(rawDigits, 10),
       isLowerBound,
       isNegated: isTrueNegated,
@@ -523,6 +563,39 @@ function runTier2ClaimVerification(text: string): {
           },
         });
       }
+    } else if (claim.claimType === 'unverified_entity') {
+      const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-004')!;
+      const provenance: EvidenceProvenance = {
+        metricId: metric.id,
+        metricName: metric.metricName,
+        approvedValue: metric.approvedValue,
+        sourceDocument: metric.sourceDoc,
+        sectionCitation: metric.section,
+        validityPeriod: 'Q3 2026 Shareholder Disclosure',
+        lastAuditedDate: '2026-10-01',
+        status: 'active',
+      };
+
+      findings.push({
+        id: `T2-CLAIM-${i}`,
+        category: 'claim_verification',
+        verdict: 'UNVERIFIED',
+        reasonCode: 'MISSING_SOURCE',
+        matchedText: claim.text,
+        startIndex: claim.startIndex,
+        endIndex: claim.endIndex,
+        severity: 'warning',
+        explanation: `Unverified Entity Metric. Draft asserts "${claim.text}". Brand Vault metric MTR-004 certifies "${metric.approvedValue} active enterprise customer accounts", not brands or organizations. The system abstains from transferring customer account verification to distinct corporate entities without separate audit evidence.`,
+        guidelineTitle: 'Unverified Entity Metric',
+        guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+        authorityLevel: 2,
+        evidence: provenance,
+        rewrites: {
+          direct: '420+ active enterprise customer accounts',
+          punchy: 'trusted by 420+ enterprise customer accounts',
+          conservative: 'at least 420 active enterprise customer accounts',
+        },
+      });
     } else if (claim.claimType === 'arr') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-006')!;
       const isExactMatch = claim.rawNumber === metric.rawNumber;
@@ -716,7 +789,7 @@ function runTier2ClaimVerification(text: string): {
         },
         rewrites: {
           direct: '94.2% enterprise retention',
-          punchy: 'industry-leading 94.2% enterprise retention',
+          punchy: 'audited 94.2% enterprise client retention',
           conservative: '94.2% client retention rate audited by KPMG',
         },
       });

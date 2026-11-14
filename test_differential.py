@@ -87,6 +87,13 @@ SHARED_CORPUS = [
         "channel": "enterprise_web",
         "expected_score_max": 85,
         "expect_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 10: Superlative & Entity Scope Enforcement",
+        "text": "We are an industry-leading brand governance platform serving 420+ global enterprise brands.",
+        "channel": "enterprise_web",
+        "expected_score_max": 80,
+        "expect_zero_conflicts": True
     }
 ]
 

@@ -134,6 +134,16 @@ BRAND_RULES = [
             "flawless guarantee",
             "zero risk",
             "guaranteed 100%",
+            "industry-leading",
+            "industry leading",
+            "the leading",
+            "leading enterprise",
+            "leading brand",
+            "market-leading",
+            "market leading",
+            "best-in-class",
+            "best in class",
+            "premier",
         ],
         "approved": "enterprise brand governance platform",
         "title": "Hyperbolic Unsubstantiated Superlatives",
@@ -280,6 +290,36 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
             continue
 
         seen_spans.add(span_key)
+        matched_lower = original_slice.lower()
+        if "inkloom" in matched_lower or "ink loom" in matched_lower:
+            rewrites_dict = {"direct": "Inkloom AI", "punchy": "Inkloom AI", "conservative": "Inkloom AI"}
+        elif "veribrand" in matched_lower or "verybrand" in matched_lower:
+            rewrites_dict = {"direct": "VeriBrand AI", "punchy": "VeriBrand AI", "conservative": "VeriBrand AI"}
+        elif any(k in matched_lower for k in ["wizard", "magic", "algorithm", "sauce"]):
+            rewrites_dict = {
+                "direct": "explainable compliance co-pilot",
+                "punchy": "governance co-pilot",
+                "conservative": "compliance verification engine"
+            }
+        elif any(k in matched_lower for k in ["replace", "eliminate", "no human"]):
+            rewrites_dict = {
+                "direct": "empowers brand teams with automated pre-screening while maintaining human oversight",
+                "punchy": "co-pilots brand reviews alongside human editors",
+                "conservative": "augments editorial staff with structured pre-publication compliance checks"
+            }
+        elif rule["category"] == "tone_drift":
+            rewrites_dict = {
+                "direct": "enterprise brand governance platform",
+                "punchy": "purpose-built governance co-pilot",
+                "conservative": "pre-publication brand compliance system"
+            }
+        else:
+            rewrites_dict = {
+                "direct": rule["approved"],
+                "punchy": rule["approved"],
+                "conservative": rule["approved"]
+            }
+
         findings.append({
             "id": f"PY-T1-{rule['id']}-{start_idx}",
             "category": rule["category"],
@@ -293,11 +333,7 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "guideline_title": rule["title"],
             "guideline_citation": rule["citation"],
             "authority_level": rule["authority"],
-            "rewrites": {
-                "direct": rule["approved"],
-                "punchy": f"{rule['approved']}",
-                "conservative": f"compliant {rule['approved']}"
-            }
+            "rewrites": rewrites_dict
         })
 
     # Rogue Hex check
@@ -395,9 +431,9 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; lower-bound 420+ verified; negated or <420 is CONFLICT, exact 420/421-999 or >=1000 is UNVERIFIED)
+    # 2. Customer counts (Audited ground truth is 420+ active enterprise customer accounts; lower-bound 420+ verified; negated or <420 is CONFLICT, exact 420/421-999 or >=1000 is UNVERIFIED; brands/organizations trigger UNVERIFIED entity metric)
     cust_matches = list(re.finditer(
-        r"(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(?:customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+customer\s+accounts)\b",
+        r"(?:(over|more than|at least|exactly|supports?|serves?|with)\s+)?([0-9,]+)(\+?)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+(customers|customer\s+accounts|accounts|brands|organizations)|active\s+enterprise\s+(customer\s+accounts))\b",
         text,
         re.IGNORECASE
     ))
@@ -405,6 +441,8 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
         prefix = (m.group(1) or '').lower()
         claimed_num = int(m.group(2).replace(',', ''))
         has_plus = bool(m.group(3))
+        raw_entity = ((m.group(4) or m.group(5) or '')).lower().strip()
+        is_brand_or_org = raw_entity in ['brands', 'organizations']
         preceding = text[max(0, m.start() - 50):m.start()].lower()
         is_negated = bool(re.search(r"\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b", preceding, re.IGNORECASE))
         is_affirmative = bool(re.search(r"\bnot\s+only\b", preceding, re.IGNORECASE))
@@ -413,7 +451,36 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
 
         metric = VERIFIED_METRICS["MTR-004"]
 
-        if true_negated:
+        if is_brand_or_org:
+            findings.append({
+                "id": f"PY-T2-CUST-ENT-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unverified Entity Metric. Draft asserts '{m.group(0).strip()}'. Brand Vault metric MTR-004 certifies '{metric['approved']} active enterprise customer accounts', not brands or organizations. The system abstains from transferring customer account verification to distinct corporate entities without separate audit evidence.",
+                "guideline_title": "Unverified Entity Metric",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "trusted by 420+ enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif true_negated:
             findings.append({
                 "id": f"PY-T2-CUST-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -852,7 +919,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             },
             "rewrites": {
                 "direct": "94.2% enterprise retention",
-                "punchy": "industry-leading 94.2% enterprise retention",
+                "punchy": "audited 94.2% enterprise client retention",
                 "conservative": "94.2% client retention rate audited by KPMG"
             }
         })

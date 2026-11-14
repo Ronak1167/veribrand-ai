@@ -55,7 +55,7 @@ export const BRAND_RULES: BrandRule[] = [
     id: 'RULE-TONE-04',
     category: 'tone_drift',
     title: 'Hyperbolic Unsubstantiated Superlatives',
-    description: 'Statements like "world\'s best" or "most revolutionary" violate enterprise advertising compliance guidelines (FTC/ASCI).',
+    description: 'Statements like "world\'s best", "industry-leading", or "most revolutionary" violate enterprise advertising compliance guidelines (FTC/ASCI).',
     authorityLevel: 1, // Legal
     severity: 'critical',
     forbiddenPatterns: [
@@ -66,8 +66,18 @@ export const BRAND_RULES: BrandRule[] = [
       "flawless guarantee",
       "zero risk",
       "guaranteed 100%",
+      "industry-leading",
+      "industry leading",
+      "the leading",
+      "leading enterprise",
+      "leading brand",
+      "market-leading",
+      "market leading",
+      "best-in-class",
+      "best in class",
+      "premier",
     ],
-    approvedAlternative: 'Industry-leading, empirical brand governance engine',
+    approvedAlternative: 'enterprise brand governance platform',
     citation: 'FTC & Regulatory Compliance Manual §5.3',
   },
   {
