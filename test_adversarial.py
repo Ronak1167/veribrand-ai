@@ -308,4 +308,72 @@ assert any(f['severity'] == 'critical' and 'press release policy' in f['explanat
 
 print("-> TEST 13 PASSED: Edge case claim & governance invariants verified (retention numerical comparison, bidirectional negation, flexible SLA phrasing, funding/valuation context awareness, channel-specific Twitter/PR policies)!")
 
-print("\nALL 13 VERIFICATION TESTS PASSED CLEANLY!")
+# Test 14: Contraction Negations & Phrasal Revocations
+# 14a: "don't provide 99.9% uptime" -> CONFLICT
+d14a = test_payload("TEST 14a: CONTRACTION NEGATION UPTIME ('don't provide 99.9% uptime')", "We don't provide 99.9% uptime.")
+assert any(f['verdict'] == 'CONFLICT' and 'sla' in f['guidelineTitle'].lower() for f in d14a['findings']), "Expected CONFLICT on 'don't provide 99.9% uptime'"
+
+# 14b: "don't have SOC 2 Type II" -> CONFLICT
+d14b = test_payload("TEST 14b: CONTRACTION NEGATION SECURITY ('don't have SOC 2')", "We don't have SOC 2 Type II certification.")
+assert any(f['verdict'] == 'CONFLICT' and 'security' in f['guidelineTitle'].lower() for f in d14b['findings']), "Expected CONFLICT on 'don't have SOC 2'"
+
+# 14c: "certification isn't active" -> CONFLICT
+d14c = test_payload("TEST 14c: SUBSEQUENT CONTRACTION REVOCATION ('isn't active')", "Our SOC 2 Type II certification isn't active.")
+assert any(f['verdict'] == 'CONFLICT' and 'security' in f['guidelineTitle'].lower() for f in d14c['findings']), "Expected CONFLICT on 'isn't active'"
+
+# 14d: "don't have 94.2% retention" -> CONFLICT
+d14d = test_payload("TEST 14d: CONTRACTION NEGATION RETENTION ('don't have 94.2% retention')", "We don't have 94.2% enterprise client retention.")
+assert any(f['verdict'] == 'CONFLICT' and 'retention' in f['guidelineTitle'].lower() for f in d14d['findings']), "Expected CONFLICT on 'don't have 94.2% retention'"
+
+# 14e: "retention rate is no longer 94.2%" -> CONFLICT
+d14e = test_payload("TEST 14e: PHRASAL RETENTION REVOCATION ('is no longer 94.2%')", "Our retention rate is no longer 94.2%.")
+assert any(f['verdict'] == 'CONFLICT' and 'retention' in f['guidelineTitle'].lower() for f in d14e['findings']), "Expected CONFLICT on 'is no longer 94.2%'"
+
+print("-> TEST 14 PASSED: Contractions & phrasal revocations correctly detected as critical CONFLICTs!")
+
+# Test 15: Financial Assertion Phrasing & Classification Invariants
+# 15a: "Annual revenue was $50M" -> UNVERIFIED
+d15a = test_payload("TEST 15a: NOUN-FIRST ANNUAL REVENUE ('Annual revenue was $50M')", "Annual revenue was $50M.")
+assert any(f['verdict'] == 'UNVERIFIED' and 'annual revenue' in f['guidelineTitle'].lower() for f in d15a['findings']), "Expected UNVERIFIED for 'Annual revenue was $50M'"
+
+# 15b: "Total revenue is $50M" -> UNVERIFIED
+d15b = test_payload("TEST 15b: TOTAL REVENUE ('Total revenue is $50M')", "Total revenue is $50M.")
+assert any(f['verdict'] == 'UNVERIFIED' and 'annual revenue' in f['guidelineTitle'].lower() for f in d15b['findings']), "Expected UNVERIFIED for 'Total revenue is $50M'"
+
+# 15c: "Revenue reached $50M" -> UNVERIFIED
+d15c = test_payload("TEST 15c: REVENUE REACHED ('Revenue reached $50M')", "Revenue reached $50M.")
+assert any(f['verdict'] == 'UNVERIFIED' and 'annual revenue' in f['guidelineTitle'].lower() for f in d15c['findings']), "Expected UNVERIFIED for 'Revenue reached $50M'"
+
+# 15d: "Our annual recurring revenue was $50M" -> CONFLICT
+d15d = test_payload("TEST 15d: FULL PHRASE ARR MISMATCH ('annual recurring revenue was $50M')", "Our annual recurring revenue was $50M.")
+assert any(f['verdict'] == 'CONFLICT' and 'arr' in f['guidelineTitle'].lower() for f in d15d['findings']), "Expected CONFLICT for 'annual recurring revenue was $50M'"
+
+# 15e: Clause with 'investor' mention without clause-crossing suppression
+d15e = test_payload("TEST 15e: ANNUAL REVENUE NOT SUPPRESSED BY INVESTOR IN NEXT CLAUSE", "Annual revenue was $50M; we later met investors.")
+assert any(f['verdict'] == 'UNVERIFIED' and 'annual revenue' in f['guidelineTitle'].lower() for f in d15e['findings']), "Expected UNVERIFIED for 'Annual revenue was $50M' despite investor in next clause"
+
+# 15f: "Our total revenue was $18.5M" -> UNVERIFIED (Total revenue is unverified even if $18.5M, because Brand Vault only audits ARR)
+d15f = test_payload("TEST 15f: TOTAL REVENUE OF $18.5M (UNVERIFIED TOTAL REVENUE)", "Our total revenue was $18.5M.")
+assert any(f['verdict'] == 'UNVERIFIED' and 'annual revenue' in f['guidelineTitle'].lower() for f in d15f['findings']), "Expected UNVERIFIED for total revenue $18.5M"
+
+# 15g: "Our ARR was $18.5M" -> VERIFIED
+d15g = test_payload("TEST 15g: VERIFIED AUDITED ARR ('Our ARR was $18.5M')", "Our ARR was $18.5M.")
+assert any(f['verdict'] == 'VERIFIED' and 'arr' in f['guidelineTitle'].lower() for f in d15g['findings']), "Expected VERIFIED for 'Our ARR was $18.5M'"
+
+print("-> TEST 15 PASSED: Financial assertions strictly classified (dual-form regex, ARR vs total revenue, no broad clause-crossing suppression)!")
+
+# Test 16: Overlapping Aho-Corasick Priority De-duplication
+# 16a: "We are an industry-leading brand governance platform." -> Exactly 1 finding for "industry-leading"
+d16a = test_payload("TEST 16a: OVERLAPPING MATCH ('industry-leading brand')", "We are an industry-leading brand governance platform.")
+tone_findings = [f for f in d16a['findings'] if f.get('category') == 'tone_drift']
+assert len(tone_findings) == 1, f"Expected exactly 1 tone finding, got {len(tone_findings)}: {[f['matchedText'] for f in tone_findings]}"
+assert tone_findings[0]['matchedText'].lower() == 'industry-leading', f"Expected 'industry-leading', got {tone_findings[0]['matchedText']}"
+
+# 16b: "We are the leading enterprise platform." -> Exactly 1 finding
+d16b = test_payload("TEST 16b: OVERLAPPING MATCH ('the leading enterprise')", "We are the leading enterprise platform.")
+tone_findings_b = [f for f in d16b['findings'] if f.get('category') == 'tone_drift']
+assert len(tone_findings_b) == 1, f"Expected exactly 1 tone finding, got {len(tone_findings_b)}: {[f['matchedText'] for f in tone_findings_b]}"
+
+print("-> TEST 16 PASSED: Overlapping Tier-1 match interval priority de-duplication verified!")
+
+print("\nALL 16 VERIFICATION TESTS PASSED CLEANLY!")

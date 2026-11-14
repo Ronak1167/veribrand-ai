@@ -94,6 +94,27 @@ SHARED_CORPUS = [
         "channel": "enterprise_web",
         "expected_score_max": 80,
         "expect_zero_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 11: Contraction Negations & Phrasal Revocations",
+        "text": "We don't provide 99.9% uptime and our SOC 2 Type II certification isn't active.",
+        "channel": "enterprise_web",
+        "expected_score_max": 70,
+        "expect_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 12: Financial Assertion Classification (Annual Revenue vs ARR)",
+        "text": "Annual revenue was $50M and our ARR was $18.5M.",
+        "channel": "enterprise_web",
+        "expected_score_max": 95,
+        "expect_zero_conflicts": True
+    },
+    {
+        "name": "Corpus Draft 13: Overlapping Tier-1 Match De-duplication",
+        "text": "We are an industry-leading brand governance platform with SOC 2 Type II security.",
+        "channel": "enterprise_web",
+        "expected_score_min": 75,
+        "expect_zero_conflicts": True
     }
 ]
 

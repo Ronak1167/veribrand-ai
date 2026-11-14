@@ -21,7 +21,7 @@ Modern enterprises publish at dizzying velocity across dispersed teams, freelanc
 1. **Dynamic Brand Vault**: Centralized ground truth indexing style guides, verified statistical registries, trademark rules, and visual swatches.
 2. **Two-Tier Hybrid Pipeline**: Sub-10ms deterministic filtering (Aho-Corasick) paired with grounded claim fact-checking (Tri-state evaluation).
 3. **Intent-Preserving Rewrites**: Generates 3 tone-matched alternatives (Direct, Punchy, Conservative) with 1-click adoption.
-4. **Human-in-the-Loop Sign-Off**: Side-by-side diff inspection, creator appeal notes, and immutable SHA-256 audit ledger records.
+4. **Human-in-the-Loop Sign-Off**: Side-by-side diff inspection, creator appeal notes, and browser-side SHA-256 content-integrity verification records.
 5. **Reverse Brand Intelligence**: Guideline Ambiguity Heatmap analyzing recurring review disputes to advise leadership on clarifying confusing stylebook rules.
 
 ---
@@ -45,8 +45,8 @@ In our Round 1 proposal, we committed to delivering three primary architectural 
                                   │
           ┌───────────────────────┴───────────────────────┐
           ▼                                               ▼
-   [ TIER-1 FILTER ]                             [ TIER-2 CLAIM RAG ]
-Aho-Corasick Automaton (<1ms)                Hybrid Lexical + Dense RAG
+   [ TIER-1 FILTER ]                          [ TIER-2 CLAIM VERIFIER ]
+Aho-Corasick Automaton (<1ms)             Grounded Tri-State Claim Verifier
   • Trademark Casing Rules                      • Factual Assertion Extraction
   • Deprecated Jargon Terminology               • Audited Brand Vault Metrics
   • Non-Brand Hex Swatches (#FF0033)            • Tri-State Verification
@@ -78,7 +78,7 @@ Aho-Corasick Automaton (<1ms)                Hybrid Lexical + Dense RAG
 - **Backend API**: Python FastAPI (Async ASGI), Pydantic V2 structured models, OpenAPI/Swagger docs.
 - **Deterministic String Engine**: In-memory Aho-Corasick Automaton for O(n + m) multi-pattern matching.
 - **Computer Vision**: OpenCV + Pillow for dominant color extraction & WCAG 2.1 AA luminance contrast validation.
-- **Audit Cryptography**: SHA-256 cryptographic hashing committed to the audit ledger.
+- **Audit Cryptography**: Browser-side SHA-256 content-integrity verification records.
 - **Containerization**: Docker & Multi-stage container builds.
 
 ---
@@ -103,7 +103,7 @@ FastAPI Swagger docs available at **[http://localhost:8000/docs](http://localhos
 
 ### 3. Run the Automated Test Suite
 ```bash
-cd veribrand-ai/backend
+cd veribrand-ai
 python test_adversarial.py
 ```
 
@@ -116,7 +116,7 @@ To facilitate frictionless evaluation, VeriBrand AI features 3 built-in demo sce
 1. **Scenario 1: High-Risk Copy with Multiple Violations (8 Flags Across Tiers 1 & 2)**:
    - Includes lowercase `"inkloom"`, `"artificial intelligence wizard"`, hyperbolic `"world's most revolutionary"`, contradictory SLA (`99.999%` vs approved `99.9%`), exaggerated customer count (`1,500` vs approved `420+`), conflicting revenue (`$50M` vs audited `$18.5M`), outdated pricing (`$49/mo`), and rogue hex swatch (`#ff0033`).
 2. **Scenario 2: Subtle Borderline Copy (2 Flags)**:
-   - Demonstrates nuance: verified metrics pass cleanly, while unverified legal superlatives trigger model abstention.
+   - Demonstrates nuance: verified metrics pass cleanly, while unverified legal superlatives trigger deterministic abstention.
 3. **Scenario 3: 100% On-Brand Compliant Draft (Green Pass)**:
    - Demonstrates a flawless draft receiving a 100/100 compliance score, ready for 1-click reviewer sign-off.
 

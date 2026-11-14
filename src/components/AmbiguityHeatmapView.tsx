@@ -59,7 +59,7 @@ export const AmbiguityHeatmapView: React.FC<AmbiguityHeatmapViewProps> = ({ metr
             <h2 className="text-xl font-bold text-white">Reverse Brand Intelligence: Guideline Ambiguity Heatmap</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-3xl leading-relaxed">
-            Unlike traditional linters that merely punish writers, VeriBrand AI analyzes recurring review redlines and creator appeals to diagnose which brand guidelines are inherently confusing and require organizational clarification.
+            Unlike traditional linters that merely punish writers, VeriBrand AI analyzes recurring review redlines and creator appeals to diagnose which brand guidelines are inherently confusing and require organizational clarification. Telemetry combines seeded benchmark baselines with live session review events.
           </p>
         </div>
 
@@ -110,7 +110,7 @@ export const AmbiguityHeatmapView: React.FC<AmbiguityHeatmapViewProps> = ({ metr
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
             <Flame className="w-4 h-4 text-amber-400" />
-            <span>Organizational Rule Ambiguity Index (Real-Time Diagnostics)</span>
+            <span>Organizational Rule Ambiguity Index (Seeded Baseline + Live Session Events)</span>
           </h3>
           <span className="text-xs text-slate-400">Sorted by Confusion Index</span>
         </div>
@@ -152,6 +152,9 @@ export const AmbiguityHeatmapView: React.FC<AmbiguityHeatmapViewProps> = ({ metr
                   <p className="font-black text-sm text-rose-400">{m.overrideRatePct}%</p>
                 </div>
               </div>
+              <p className="text-[10px] text-slate-400 text-center">
+                Seeded Benchmark Baseline + Observed Session Events
+              </p>
 
               {/* AI Diagnostic Recommendation */}
               <div className="bg-slate-950/90 p-3 rounded-lg border border-slate-800 text-xs space-y-1">

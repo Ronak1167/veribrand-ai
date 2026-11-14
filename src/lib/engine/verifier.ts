@@ -152,7 +152,7 @@ function runTier1DeterministicScan(text: string): {
       // Explicit negation of hyperbolic claim disclaims the superlative rather than asserting it
       if (rule.category === 'tone_drift') {
         const preceding = text.slice(Math.max(0, m.start - 25), m.start);
-        if (/\b(?:not|never|neither|no)\s+(?:an?\s+|the\s+)?$/i.test(preceding)) {
+        if (/\b(?:not|never|neither|no|isn't|aren't|wasn't|weren't)\s+(?:an?\s+|the\s+)?$/i.test(preceding)) {
           continue;
         }
       }
@@ -203,16 +203,47 @@ function runTier1DeterministicScan(text: string): {
     }
   }
 
-  // De-duplicate overlapping findings (prefer longer matches)
-  const uniqueFindings = findings.filter((f, idx) => {
-    return !findings.some(
-      (other, oIdx) =>
-        oIdx !== idx &&
-        other.startIndex <= f.startIndex &&
-        other.endIndex >= f.endIndex &&
-        other.matchedText.length > f.matchedText.length
-    );
+  // De-duplicate overlapping rule findings:
+  // Priority Policy:
+  // 1. Highest severity (critical > warning > info)
+  // 2. Highest authority level (1 > 2)
+  // 3. Longest span length
+  // 4. Earlier startIndex
+  const getRulePriority = (f: LintFinding): [number, number, number, number] => {
+    const sevScore = f.severity === 'critical' ? 3 : f.severity === 'warning' ? 2 : 1;
+    const authScore = f.authorityLevel === 1 ? 2 : 1;
+    const lenScore = (f.endIndex ?? 0) - (f.startIndex ?? 0);
+    const startScore = -(f.startIndex ?? 0);
+    return [sevScore, authScore, lenScore, startScore];
+  };
+
+  const ruleFindings = findings.filter((f) => !f.id.includes('HEX'));
+  const hexFindings = findings.filter((f) => f.id.includes('HEX'));
+
+  const sortedRuleCandidates = [...ruleFindings].sort((a, b) => {
+    const pA = getRulePriority(a);
+    const pB = getRulePriority(b);
+    for (let k = 0; k < 4; k++) {
+      if (pA[k] !== pB[k]) return pB[k] - pA[k];
+    }
+    return 0;
   });
+
+  const selectedRuleFindings: LintFinding[] = [];
+  for (const cand of sortedRuleCandidates) {
+    const overlaps = selectedRuleFindings.some(
+      (accepted) =>
+        Math.max(accepted.startIndex, cand.startIndex) <
+        Math.min(accepted.endIndex, cand.endIndex)
+    );
+    if (!overlaps) {
+      selectedRuleFindings.push(cand);
+    }
+  }
+
+  const uniqueFindings = [...selectedRuleFindings, ...hexFindings].sort(
+    (a, b) => a.startIndex - b.startIndex
+  );
 
   const latencyMs = Math.round((performance.now() - start) * 100) / 100;
   return { findings: uniqueFindings, latencyMs };
@@ -228,6 +259,96 @@ interface ExtractedClaim {
   isTargetFraming?: boolean;
   isLowerBound?: boolean;
   isNegated?: boolean;
+  isUncertain?: boolean;
+}
+
+/**
+ * Sentence-aware polarity and assertion analyzer.
+ * Identifies sentence/clause boundaries using [.!?\n;] (excluding decimal points),
+ * and checks for affirmative idioms, negations (contractions, denial verbs, phrasal negations),
+ * and hedging/uncertainty within the governing clause.
+ */
+function analyzeSentencePolarity(
+  text: string,
+  startIndex: number,
+  endIndex: number
+): {
+  isNegated: boolean;
+  isUncertain: boolean;
+  isAffirmativeIdiom: boolean;
+} {
+  // Find clause start (previous sentence or clause boundary)
+  let clauseStart = 0;
+  for (let i = startIndex - 1; i >= 0; i--) {
+    const ch = text[i];
+    if (ch === '\n' || ch === ';' || ch === '!' || ch === '?') {
+      clauseStart = i + 1;
+      break;
+    }
+    // Period that is not part of a decimal number (e.g. not between digits)
+    if (ch === '.') {
+      const prevIsDigit = i > 0 && /\d/.test(text[i - 1]);
+      const nextIsDigit = i + 1 < text.length && /\d/.test(text[i + 1]);
+      if (!prevIsDigit || !nextIsDigit) {
+        clauseStart = i + 1;
+        break;
+      }
+    }
+  }
+
+  // Find clause end (next sentence or clause boundary)
+  let clauseEnd = text.length;
+  for (let i = endIndex; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === '\n' || ch === ';' || ch === '!' || ch === '?') {
+      clauseEnd = i;
+      break;
+    }
+    if (ch === '.') {
+      const prevIsDigit = i > 0 && /\d/.test(text[i - 1]);
+      const nextIsDigit = i + 1 < text.length && /\d/.test(text[i + 1]);
+      if (!prevIsDigit || !nextIsDigit) {
+        clauseEnd = i;
+        break;
+      }
+    }
+  }
+
+  const preceding = text.slice(clauseStart, startIndex).toLowerCase();
+  const matched = text.slice(startIndex, endIndex).toLowerCase();
+  const subsequent = text.slice(endIndex, clauseEnd).toLowerCase();
+  const fullClause = `${preceding} ${matched} ${subsequent}`;
+
+  // Affirmative idioms (e.g. "not only", "not just", "not merely")
+  const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\b/i.test(fullClause);
+
+  // Preceding negation: contractions, denial verbs, adverbs, phrasal negation
+  const hasPrecedingNegation =
+    /\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b/i.test(
+      preceding
+    );
+
+  // Subsequent negation / revocation:
+  const hasSubsequentNegation =
+    /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|isn't(?:\s+active)?|aren't|wasn't|weren't|not\s+active|not\s+guaranteed|revoked|expired|cancelled|void|suspended|dropped|fallen|disclaimed|failed|lacks?|without)\b/i.test(
+      subsequent
+    );
+
+  // Negation inside matched slice (e.g. "retention rate is no longer 94.2%", "not SOC 2 Type II")
+  const hasInternalNegation =
+    /\b(?:not|never|no|without|no\s+longer|isn't|aren't|cannot|can't)\b/i.test(matched);
+
+  const isNegated =
+    !isAffirmativeIdiom &&
+    (hasPrecedingNegation || hasSubsequentNegation || hasInternalNegation);
+
+  // Uncertainty / Hedging
+  const isUncertain =
+    /\b(?:might|maybe|possibly|perhaps|unclear|uncertain|alleged|allegedly|rumored|unconfirmed|not\s+sure)\b/i.test(
+      fullClause
+    );
+
+  return { isNegated, isUncertain, isAffirmativeIdiom };
 }
 
 function extractClaimsFromText(text: string): ExtractedClaim[] {
@@ -239,19 +360,15 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   let match;
   while ((match = uptimeRegex.exec(text)) !== null) {
     const numStr = match[1] || match[2];
-    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
-    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
-    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
-    const hasPrecedingNegation = /\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b/i.test(preceding);
-    const hasSubsequentNegation = /\b(?:is\s+not|not\s+guaranteed|no\s+longer|revoked|expired|void|cancelled)\b/i.test(subsequent);
-    const isNegated = (hasPrecedingNegation && !isAffirmativeIdiom) || hasSubsequentNegation;
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'uptime',
       rawNumber: parseFloat(numStr),
-      isNegated,
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
     });
   }
 
@@ -264,13 +381,7 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     const hasPlus = Boolean(match[3]);
     const rawEntity = (match[4] || match[5] || '').toLowerCase().replace(/\s+/g, ' ');
     const isBrandOrOrg = rawEntity === 'brands' || rawEntity === 'organizations';
-    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
-    const isNegated =
-      /\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b/i.test(
-        preceding
-      );
-    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
-    const isTrueNegated = isNegated && !isAffirmativeIdiom;
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
     const isLowerBound =
       (hasPlus || ['over', 'more than', 'at least'].includes(prefix)) && prefix !== 'exactly';
 
@@ -281,29 +392,39 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       claimType: isBrandOrOrg ? 'unverified_entity' : 'customers',
       rawNumber: parseInt(rawDigits, 10),
       isLowerBound,
-      isNegated: isTrueNegated,
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
     });
   }
 
-  // 3. Revenue / ARR claims (distinguish ARR from total annual revenue; ignore funding/valuation)
+  // 3. Revenue / ARR claims (distinguish ARR from total annual revenue; ignore non-revenue contexts)
   const revenueRegex =
-    /(?:(\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue))|(?:(annual recurring revenue|ARR|annual revenue|total revenue|revenue)\s*(?:of\s+)?\$([0-9.]+)\s*(?:M|million)))/gi;
+    /(?:(\$([0-9.]+)\s*(?:M|million|B|billion)\s*(?:in\s+)?(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue))|((?:annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue)\s*(?:of|is|was|reached|hit|at|stands\s+at)?\s*\$([0-9.]+)\s*(?:M|million|B|billion)))\b/gi;
   while ((match = revenueRegex.exec(text)) !== null) {
     const rawDigits = match[2] || match[5];
-    const rawUnit = (match[3] || match[4] || '').toLowerCase();
-    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
-    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
-    const surrounding = `${preceding} ${match[0]} ${subsequent}`.toLowerCase();
-    if (/\b(?:funding|round|seed|series\s+[a-z]|valuation|raised|raising|investors?|investment|capital|venture|equity)\b/i.test(surrounding)) {
+    const rawUnit = (match[3] || match[4] || '')
+      .toLowerCase()
+      .replace(/^(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue).*/i, '$1')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
+
+    // Contextual exclusion: exclude if this dollar amount itself directly describes a funding round or valuation
+    const matchLower = match[0].toLowerCase();
+    if (/\b(?:funding|seed|series\s+[a-z]|valuation)\b/i.test(matchLower)) {
       continue;
     }
-    const isARR = rawUnit.includes('arr') || rawUnit.includes('recurring');
+
+    const isARR = rawUnit === 'arr' || rawUnit === 'annual recurring revenue';
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: isARR ? 'arr' : 'annual_revenue',
       rawNumber: parseFloat(rawDigits),
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
     });
   }
 
@@ -319,24 +440,20 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
     });
   }
 
-  // 5. Retention claims (e.g. "94.2% enterprise retention", "94.9% client retention", "95% retention")
+  // 5. Retention claims (e.g. "94.2% enterprise retention", "retention rate is no longer 94.2%", "94.9% client retention")
   const retentionRegex =
-    /(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))/gi;
+    /(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:(?:is|was|of|at|stands\s+at|remains|dropped\s+to|fell\s+to)\s+)?(?:(?:no\s+longer|not)\s+)?(?:(?:is|at|of)\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))/gi;
   while ((match = retentionRegex.exec(text)) !== null) {
     const numStr = match[1] || match[2];
-    const preceding = text.slice(Math.max(0, match.index - 50), match.index).toLowerCase();
-    const subsequent = text.slice(match.index + match[0].length, Math.min(text.length, match.index + match[0].length + 50)).toLowerCase();
-    const hasPrecedingNegation = /\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b/i.test(preceding);
-    const hasSubsequentNegation = /\b(?:is\s+not|no\s+longer|dropped|fallen|void)\b/i.test(subsequent);
-    const isAffirmativeIdiom = /\bnot\s+only\b/i.test(preceding);
-    const isNegated = (hasPrecedingNegation && !isAffirmativeIdiom) || hasSubsequentNegation;
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'retention',
       rawNumber: parseFloat(numStr),
-      isNegated,
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
     });
   }
 
@@ -358,11 +475,14 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   // 7. Security certs (e.g. "SOC 2 Type II", "not SOC 2 Type II certified")
   const socRegex = /\b(?:(?:not(?:\s+only)?|never|no|without)\s+)?SOC 2(?: Type II)?\b/gi;
   while ((match = socRegex.exec(text)) !== null) {
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
     claims.push({
       text: match[0],
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'security',
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
     });
   }
 
@@ -427,6 +547,27 @@ function runTier2ClaimVerification(text: string): {
             direct: 'backed by a 99.9% enterprise uptime SLA',
             punchy: '99.9% enterprise uptime SLA',
             conservative: 'holding audited 99.9% service availability SLA',
+          },
+        });
+      } else if (claim.isUncertain) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unqualified SLA Availability Assertion. Draft asserts tentative or unconfirmed SLA availability ("${claim.text}"). SLA claims must be stated authoritatively according to the approved 99.9% MSA specification.`,
+          guidelineTitle: 'Unverified SLA Availability Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: 'backed by a 99.9% enterprise uptime SLA',
+            punchy: '99.9% enterprise uptime SLA',
+            conservative: 'audited 99.9% service availability (excluding scheduled maintenance)',
           },
         });
       } else if (isExactMatch) {
@@ -501,6 +642,27 @@ function runTier2ClaimVerification(text: string): {
           guidelineTitle: 'Customer Count Contradiction',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
+          },
+        });
+      } else if (claim.isUncertain) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unverified Customer Count Assertion. Draft asserts tentative or unconfirmed customer account count ("${claim.text}"). Customer disclosures require definitive audit confirmation.`,
+          guidelineTitle: 'Unverified Customer Count Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
           evidence: provenance,
           rewrites: {
             direct: '420+ active enterprise customer accounts',
@@ -666,7 +828,49 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (isExactMatch) {
+      if (claim.isNegated) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'CONFLICT',
+          reasonCode: 'NUMERICAL_MISMATCH',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'critical',
+          explanation: `Negated ARR Financial Disclosure. Draft denies audited $18.5M Annual Recurring Revenue (ARR) ("${claim.text}"), contradicting verified Deloitte FY25 statements.`,
+          guidelineTitle: 'ARR Financial Disclosure Contradiction',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '$18.5M ARR',
+            punchy: '$18.5M in audited annual recurring revenue',
+            conservative: '$18.5M ARR (FY25 Deloitte audit)',
+          },
+        });
+      } else if (claim.isUncertain) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unverified ARR Metric Assertion. Draft asserts tentative or unconfirmed ARR figures ("${claim.text}"). Financial disclosures must cite audited Deloitte FY25 statements.`,
+          guidelineTitle: 'Unverified ARR Metric Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '$18.5M ARR',
+            punchy: '$18.5M in audited annual recurring revenue',
+            conservative: '$18.5M ARR (FY25 audited disclosure)',
+          },
+        });
+      } else if (isExactMatch) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -854,6 +1058,27 @@ function runTier2ClaimVerification(text: string): {
             conservative: 'holding audited 94.2% client retention rate (KPMG FY25)',
           },
         });
+      } else if (claim.isUncertain) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unqualified Retention Assertion. Draft asserts unconfirmed retention rate ("${claim.text}"). Must cite verified KPMG 94.2% audit baseline without equivocation.`,
+          guidelineTitle: 'Unverified Retention Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise retention',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: '94.2% client retention rate audited by KPMG',
+          },
+        });
       } else if (isExactMatch) {
         findings.push({
           id: `T2-CLAIM-${i}`,
@@ -954,16 +1179,7 @@ function runTier2ClaimVerification(text: string): {
     } else if (claim.claimType === 'security') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
 
-      // Scope-aware negation check: checks preceding, matched, and subsequent text for negation/revocation
-      const preceding = text.slice(Math.max(0, claim.startIndex - 40), claim.startIndex).toLowerCase();
-      const subsequent = text.slice(claim.endIndex, Math.min(text.length, claim.endIndex + 40)).toLowerCase();
-      const fullContext = `${preceding} ${claim.text} ${subsequent}`.toLowerCase();
-      const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\b/i.test(fullContext);
-      const hasNegationWord = /\b(not|never|neither|no|non|unverified|without|lack|lacks|lacking|failed|cannot)\b/i.test(fullContext);
-      const hasSubsequentNegation = /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|not\s+active|revoked|expired|cancelled|void|suspended|lacks?|without|failed)\b/i.test(subsequent);
-      const isNegated = (hasNegationWord && !isAffirmativeIdiom) || hasSubsequentNegation;
-
-      if (isNegated) {
+      if (claim.isNegated) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -990,6 +1206,36 @@ function runTier2ClaimVerification(text: string): {
           rewrites: {
             direct: 'backed by SOC 2 Type II security certification',
             punchy: 'attested SOC 2 Type II compliance',
+            conservative: 'holding active SOC 2 Type II certification',
+          },
+        });
+      } else if (claim.isUncertain) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Unverified Security Certification. Draft expresses uncertainty regarding SOC 2 Type II compliance ("${claim.text}"). Security attestations require active A-LIGN certification confirmation.`,
+          guidelineTitle: 'Unverified Security Certification',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: {
+            metricId: metric.id,
+            metricName: metric.metricName,
+            approvedValue: metric.approvedValue,
+            sourceDocument: metric.sourceDoc,
+            sectionCitation: metric.section,
+            validityPeriod: '2026-2027',
+            lastAuditedDate: '2026-06-30',
+            status: 'active',
+          },
+          rewrites: {
+            direct: 'SOC 2 Type II certified',
+            punchy: 'attested SOC 2 Type II security',
             conservative: 'holding active SOC 2 Type II certification',
           },
         });

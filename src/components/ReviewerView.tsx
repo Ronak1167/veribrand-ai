@@ -8,6 +8,7 @@ import {
   User,
   MessageSquare,
   AlertCircle,
+  AlertTriangle,
   Hash,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
@@ -33,8 +34,15 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
   const [reviewerName, setReviewerName] = useState<string>('Brand Guardian (Demo Reviewer)');
   const [feedbackNote, setFeedbackNote] = useState<string>('');
   const [changesModalOpen, setChangesModalOpen] = useState<boolean>(false);
+  const [exceptionModalOpen, setExceptionModalOpen] = useState<boolean>(false);
+  const [exceptionRationale, setExceptionRationale] = useState<string>('');
 
   const activeItem = submissions.find((s) => s.id === selectedId) || submissions[0];
+
+  const criticalConflicts = activeItem?.auditResult.findings.filter(
+    (f) => f.severity === 'critical' && f.verdict === 'CONFLICT'
+  ) || [];
+  const hasCriticalConflicts = criticalConflicts.length > 0;
 
   const handleApprove = async () => {
     if (!activeItem) return;
@@ -53,6 +61,35 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
     const timestamp = new Date().toISOString();
     const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
     onApproveSubmission(activeItem.id, hash, reviewerName);
+  };
+
+  const handleApproveWithException = async () => {
+    if (!activeItem || !exceptionRationale.trim()) return;
+
+    try {
+      confetti({
+        particleCount: 80,
+        spread: 70,
+        origin: { y: 0.6 },
+      });
+    } catch {
+      // fallback
+    }
+
+    const timestamp = new Date().toISOString();
+    const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
+
+    if (onAddComment) {
+      onAddComment(
+        activeItem.id,
+        `[CRITICAL EXCEPTION OVERRIDE] Approved by ${reviewerName}. Rationale: ${exceptionRationale.trim()}`,
+        reviewerName,
+        'Brand Reviewer'
+      );
+    }
+    onApproveSubmission(activeItem.id, hash, reviewerName);
+    setExceptionModalOpen(false);
+    setExceptionRationale('');
   };
 
   return (
@@ -177,13 +214,24 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                         Request Changes
                       </button>
 
-                      <button
-                        onClick={handleApprove}
-                        className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-md shadow-emerald-600/30"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        <span>Approve & Sign Off</span>
-                      </button>
+                      {hasCriticalConflicts ? (
+                        <button
+                          onClick={() => setExceptionModalOpen(true)}
+                          className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white font-semibold text-xs transition-all shadow-md shadow-amber-600/30"
+                          title="Critical governance conflicts exist. Explicit reviewer exception rationale required."
+                        >
+                          <AlertTriangle className="w-3.5 h-3.5" />
+                          <span>Approve with Exception Override</span>
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleApprove}
+                          className="flex items-center space-x-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-all shadow-md shadow-emerald-600/30"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Approve & Sign Off</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -204,6 +252,63 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* Critical Conflicts Warning Banner */}
+              {hasCriticalConflicts && activeItem.status !== 'approved' && (
+                <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-4 flex items-start space-x-3 text-xs">
+                  <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <h4 className="font-bold text-amber-200">
+                      Unresolved Critical Governance Conflicts Detected ({criticalConflicts.length})
+                    </h4>
+                    <p className="text-amber-300/80 leading-relaxed">
+                      Standard approval is locked. This submission contains critical brand/regulatory conflicts. To sign off, the reviewer must provide an explicit exception rationale or request creator changes.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Audit Findings & Creator Appeals */}
+              {activeItem.auditResult.findings.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
+                    <span>Grounded Findings & Creator Appeals ({activeItem.auditResult.findings.length})</span>
+                    <span className="text-[11px] font-mono text-slate-400">Score: {activeItem.auditResult.complianceScore}/100</span>
+                  </h4>
+                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                    {activeItem.auditResult.findings.map((f, idx) => (
+                      <div
+                        key={f.id || idx}
+                        className={`p-3 rounded-lg border text-xs space-y-1.5 ${
+                          f.verdict === 'CONFLICT'
+                            ? 'bg-rose-950/20 border-rose-800/40 text-rose-200'
+                            : f.verdict === 'UNVERIFIED'
+                            ? 'bg-amber-950/20 border-amber-800/40 text-amber-200'
+                            : f.verdict === 'VERIFIED'
+                            ? 'bg-emerald-950/20 border-emerald-800/40 text-emerald-200'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold">{f.guidelineTitle}</span>
+                          <span className="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-black/40">
+                            {f.verdict} ({f.severity})
+                          </span>
+                        </div>
+                        <p className="text-slate-300 text-[11px] leading-relaxed">{f.explanation}</p>
+                        {f.override?.overridden && (
+                          <div className="mt-1.5 p-2 rounded bg-indigo-950/40 border border-indigo-500/30 text-[11px] space-y-1">
+                            <span className="text-indigo-300 font-bold flex items-center gap-1">
+                              Creator Appeal Justification:
+                            </span>
+                            <p className="text-indigo-200 italic">&ldquo;{f.override.rationale}&rdquo;</p>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Side-by-Side Content Inspection */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -333,6 +438,45 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                 className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition-all"
               >
                 Send Revision Request
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Critical Exception Override Modal */}
+      {exceptionModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-amber-500/40 rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center space-x-2 text-amber-400">
+              <AlertTriangle className="w-5 h-5" />
+              <h3 className="font-bold text-base text-white">Approve with Exception Override</h3>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              This draft contains {criticalConflicts.length} unresolved critical conflicts. Under regulatory compliance standards, signing off requires mandatory documentation of the business or legal exception rationale.
+            </p>
+
+            <textarea
+              value={exceptionRationale}
+              onChange={(e) => setExceptionRationale(e.target.value)}
+              placeholder="e.g. Exception authorized by VP Marketing for closed beta partner preview under NDA..."
+              rows={3}
+              className="w-full bg-slate-950 text-slate-100 text-xs border border-amber-500/40 rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-amber-500"
+            />
+
+            <div className="flex justify-end space-x-2">
+              <button
+                onClick={() => setExceptionModalOpen(false)}
+                className="px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!exceptionRationale.trim()}
+                onClick={handleApproveWithException}
+                className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs transition-all shadow-md shadow-amber-600/30"
+              >
+                Confirm Exception Sign-Off
               </button>
             </div>
           </div>

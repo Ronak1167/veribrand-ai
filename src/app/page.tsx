@@ -140,7 +140,8 @@ export default function Home() {
       ) {
         return prev.slice(0, finding.startIndex) + rewriteText + prev.slice(finding.endIndex);
       }
-      return prev.replace(finding.matchedText, rewriteText);
+      // Safe no-op on stale or misaligned spans to prevent corrupting text
+      return prev;
     });
   };
 
@@ -155,21 +156,24 @@ export default function Home() {
       };
 
       // Feed into Ambiguity Heatmap (Reverse Brand Intelligence)
-      // Attribution: Target specific rule/metric instead of sweeping the entire category
+      // Attribution: Target specific rule/metric strictly instead of sweeping the entire category
       setAmbiguityMetrics((prev) => {
+        const targetRuleId = finding.id?.includes('T1-')
+          ? finding.id.replace(/^(?:PY-)?T1-([A-Z0-9-]+)-\d+$/, '$1')
+          : finding.evidence?.metricId;
+
         const specificMatch = prev.find((m) =>
+          (targetRuleId && m.ruleId === targetRuleId) ||
           (finding.evidence?.metricId && m.ruleId.includes(finding.evidence.metricId)) ||
-          (finding.id && m.ruleId.toLowerCase() === finding.id.toLowerCase()) ||
-          finding.guidelineTitle.toLowerCase().includes(m.ruleTitle.toLowerCase().slice(0, 10)) ||
-          m.ruleTitle.toLowerCase().includes(finding.guidelineTitle.toLowerCase().slice(0, 10))
+          (finding.id && m.ruleId.toLowerCase() === finding.id.toLowerCase())
         );
 
-        return prev.map((metric) => {
-          const isTarget = specificMatch
-            ? metric.ruleId === specificMatch.ruleId
-            : metric.category === finding.category;
+        if (!specificMatch) {
+          return prev;
+        }
 
-          if (isTarget) {
+        return prev.map((metric) => {
+          if (metric.ruleId === specificMatch.ruleId) {
             const newOverrides = metric.overrideCount + 1;
             const newRate = Math.round((newOverrides / (metric.totalTriggers + 1)) * 1000) / 10;
             return {

@@ -270,14 +270,76 @@ for rule in BRAND_RULES:
         _python_ac.add_pattern(pattern, rule)
 _python_ac.build_failure_links()
 
+def analyze_sentence_polarity(text: str, start_index: int, end_index: int) -> Dict[str, bool]:
+    clause_start = 0
+    for i in range(start_index - 1, -1, -1):
+        ch = text[i]
+        if ch in ['\n', ';', '!', '?']:
+            clause_start = i + 1
+            break
+        if ch == '.':
+            prev_digit = i > 0 and text[i - 1].isdigit()
+            next_digit = i + 1 < len(text) and text[i + 1].isdigit()
+            if not prev_digit or not next_digit:
+                clause_start = i + 1
+                break
+
+    clause_end = len(text)
+    for i in range(end_index, len(text)):
+        ch = text[i]
+        if ch in ['\n', ';', '!', '?']:
+            clause_end = i
+            break
+        if ch == '.':
+            prev_digit = i > 0 and text[i - 1].isdigit()
+            next_digit = i + 1 < len(text) and text[i + 1].isdigit()
+            if not prev_digit or not next_digit:
+                clause_end = i
+                break
+
+    preceding = text[clause_start:start_index].lower()
+    matched = text[start_index:end_index].lower()
+    subsequent = text[end_index:clause_end].lower()
+    full_clause = f"{preceding} {matched} {subsequent}"
+
+    is_affirmative_idiom = bool(re.search(r"\bnot\s+(?:only|just|merely)\b", full_clause, re.IGNORECASE))
+
+    has_preceding_negation = bool(re.search(
+        r"\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b",
+        preceding, re.IGNORECASE
+    ))
+
+    has_subsequent_negation = bool(re.search(
+        r"\b(?:is\s+no\s+longer|no\s+longer|is\s+not|isn't(?:\s+active)?|aren't|wasn't|weren't|not\s+active|not\s+guaranteed|revoked|expired|cancelled|void|suspended|dropped|fallen|disclaimed|failed|lacks?|without)\b",
+        subsequent, re.IGNORECASE
+    ))
+
+    has_internal_negation = bool(re.search(
+        r"\b(?:not|never|no|without|no\s+longer|isn't|aren't|cannot|can't)\b",
+        matched, re.IGNORECASE
+    ))
+
+    is_negated = not is_affirmative_idiom and (has_preceding_negation or has_subsequent_negation or has_internal_negation)
+
+    is_uncertain = bool(re.search(
+        r"\b(?:might|maybe|possibly|perhaps|unclear|uncertain|alleged|allegedly|rumored|unconfirmed|not\s+sure)\b",
+        full_clause, re.IGNORECASE
+    ))
+
+    return {
+        "is_negated": is_negated,
+        "is_uncertain": is_uncertain,
+        "is_affirmative_idiom": is_affirmative_idiom
+    }
+
 def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
     start = time.perf_counter()
-    findings = []
     lower_text = text.lower()
 
     # O(n + m) single-pass Aho-Corasick automaton search
     ac_matches = _python_ac.search(text)
     seen_spans = set()
+    rule_findings = []
 
     for start_idx, end_idx, pattern, rule in ac_matches:
         span_key = (start_idx, end_idx)
@@ -299,7 +361,7 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
         # Negation check for tone drift rules (e.g. "we are not an industry-leading platform")
         if rule["category"] == "tone_drift":
             preceding = text[max(0, start_idx - 25):start_idx]
-            if re.search(r"\b(?:not|never|neither|no)\s+(?:an?\s+|the\s+)?$", preceding, re.IGNORECASE):
+            if re.search(r"\b(?:not|never|neither|no|isn't|aren't|wasn't|weren't)\s+(?:an?\s+|the\s+)?$", preceding, re.IGNORECASE):
                 continue
 
         seen_spans.add(span_key)
@@ -333,7 +395,7 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "conservative": rule["approved"]
             }
 
-        findings.append({
+        rule_findings.append({
             "id": f"PY-T1-{rule['id']}-{start_idx}",
             "category": rule["category"],
             "verdict": "SUGGESTION",
@@ -350,11 +412,12 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
         })
 
     # Rogue Hex check
+    hex_findings = []
     hex_pattern = r"#(?:[0-9a-fA-F]{3}){1,2}\b"
     for m in re.finditer(hex_pattern, text):
         hex_val = m.group(0).lower()
         if hex_val in ["#ff0033", "#00ff00", "#ff00ff"]:
-            findings.append({
+            hex_findings.append({
                 "id": f"PY-T1-HEX-{m.start()}",
                 "category": "visual_token",
                 "verdict": "CONFLICT",
@@ -374,8 +437,28 @@ def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
+    # Priority de-duplication of overlapping rule findings
+    def get_rule_priority(f: Dict[str, Any]) -> Tuple[int, int, int, int]:
+        sev = f.get("severity", "info")
+        sev_score = 3 if sev == "critical" else (2 if sev == "warning" else 1)
+        auth_score = 2 if f.get("authority_level", 2) == 1 else 1
+        len_score = f.get("end_index", 0) - f.get("start_index", 0)
+        start_score = -f.get("start_index", 0)
+        return (sev_score, auth_score, len_score, start_score)
+
+    sorted_candidates = sorted(rule_findings, key=get_rule_priority, reverse=True)
+    selected_rules = []
+    for cand in sorted_candidates:
+        overlaps = any(
+            max(acc["start_index"], cand["start_index"]) < min(acc["end_index"], cand["end_index"])
+            for acc in selected_rules
+        )
+        if not overlaps:
+            selected_rules.append(cand)
+
+    all_tier1 = sorted(selected_rules + hex_findings, key=lambda x: x["start_index"])
     latency = round((time.perf_counter() - start) * 1000, 3)
-    return findings, latency
+    return all_tier1, latency
 
 def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
     start = time.perf_counter()
@@ -390,12 +473,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
         num_str = m.group(1) or m.group(2)
         claimed_num = float(num_str)
         metric = VERIFIED_METRICS["MTR-003"]
-        preceding = text[max(0, m.start() - 50):m.start()].lower()
-        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
-        is_affirmative_idiom = bool(re.search(r"\bnot\s+only\b", preceding))
-        has_preceding_negation = bool(re.search(r"\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b", preceding))
-        has_subsequent_negation = bool(re.search(r"\b(?:is\s+not|not\s+guaranteed|no\s+longer|revoked|expired|void|cancelled)\b", subsequent))
-        is_negated = (has_preceding_negation and not is_affirmative_idiom) or has_subsequent_negation
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
 
         provenance = {
             "metric_id": "MTR-003",
@@ -407,7 +485,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "status": "active"
         }
 
-        if is_negated:
+        if polarity["is_negated"]:
             findings.append({
                 "id": f"PY-T2-UPTIME-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -426,6 +504,27 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "direct": "backed by a 99.9% enterprise uptime SLA",
                     "punchy": "99.9% enterprise uptime SLA",
                     "conservative": "holding audited 99.9% service availability SLA"
+                }
+            })
+        elif polarity["is_uncertain"]:
+            findings.append({
+                "id": f"PY-T2-UPTIME-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unqualified SLA Availability Assertion. Draft asserts tentative or unconfirmed SLA availability ('{m.group(0).strip()}'). SLA claims must be stated authoritatively according to the approved 99.9% MSA specification.",
+                "guideline_title": "Unverified SLA Availability Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "backed by a 99.9% enterprise uptime SLA",
+                    "punchy": "99.9% enterprise uptime SLA",
+                    "conservative": "audited 99.9% service availability (excluding scheduled maintenance)"
                 }
             })
         elif claimed_num == metric["raw"]:
@@ -482,10 +581,9 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
         has_plus = bool(m.group(3))
         raw_entity = ((m.group(4) or m.group(5) or '')).lower().strip()
         is_brand_or_org = raw_entity in ['brands', 'organizations']
-        preceding = text[max(0, m.start() - 50):m.start()].lower()
-        is_negated = bool(re.search(r"\b(?:not|never|no|without|don't|do\s+not|doesn't|does\s+not|did\s+not|didn't|cannot|can't|lack|lacks|lacking)\b", preceding, re.IGNORECASE))
-        is_affirmative = bool(re.search(r"\bnot\s+only\b", preceding, re.IGNORECASE))
-        true_negated = is_negated and not is_affirmative
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
+        true_negated = polarity["is_negated"]
+        is_uncertain = polarity["is_uncertain"]
         is_lower_bound = (has_plus or prefix in ['over', 'more than', 'at least']) and prefix != 'exactly'
 
         metric = VERIFIED_METRICS["MTR-004"]
@@ -533,6 +631,35 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "guideline_title": "Customer Count Contradiction",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif is_uncertain:
+            findings.append({
+                "id": f"PY-T2-CUST-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unverified Customer Count Assertion. Draft asserts tentative or unconfirmed customer account count ('{m.group(0).strip()}'). Customer disclosures require definitive audit confirmation.",
+                "guideline_title": "Unverified Customer Count Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
                 "evidence": {
                     "metric_id": "MTR-004",
                     "metric_name": metric["name"],
@@ -695,24 +822,79 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
 
     # 3. Revenue / ARR (distinguish ARR from total annual revenue; ignore funding/valuation)
     rev_matches = list(re.finditer(
-        r"(?:(\$([0-9.]+)\s*(?:M|million)\s*(?:in\s+)?(annual recurring revenue|ARR|annual revenue|total revenue|revenue))|(?:(annual recurring revenue|ARR|annual revenue|total revenue|revenue)\s*(?:of\s+)?\$([0-9.]+)\s*(?:M|million)))",
+        r"(?:(\$([0-9.]+)\s*(?:M|million|B|billion)\s*(?:in\s+)?(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue))|"
+        r"((?:annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue)\s*(?:of|is|was|reached|hit|at|stands\s+at)?\s*\$([0-9.]+)\s*(?:M|million|B|billion)))\b",
         text, re.IGNORECASE
     ))
     for m in rev_matches:
         raw_digits = m.group(2) or m.group(5)
         raw_unit = (m.group(3) or m.group(4) or '').lower()
-        preceding = text[max(0, m.start() - 50):m.start()].lower()
-        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
-        surrounding = f"{preceding} {m.group(0)} {subsequent}".lower()
-        if re.search(r"\b(?:funding|round|seed|series\s+[a-z]|valuation|raised|raising|investors?|investment|capital|venture|equity)\b", surrounding):
+        raw_unit = re.sub(r"^(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue).*", r"\1", raw_unit, flags=re.IGNORECASE).strip()
+        raw_unit = re.sub(r"\s+", " ", raw_unit)
+
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
+
+        # Exclude if this dollar amount itself directly describes a funding round or valuation
+        if re.search(r"\b(?:funding|seed|series\s+[a-z]|valuation)\b", m.group(0), re.IGNORECASE):
             continue
 
         claimed_num = float(raw_digits)
-        unit_str = raw_unit
-        is_arr = 'arr' in unit_str or 'recurring' in unit_str
+        is_arr = raw_unit in ["arr", "annual recurring revenue"]
         metric = VERIFIED_METRICS["MTR-006"]
+        provenance = {
+            "metric_id": "MTR-006",
+            "metric_name": metric["name"],
+            "approved_value": metric["approved"],
+            "source_document": metric["source"],
+            "section_citation": metric["citation"],
+            "validity_period": metric["validity"],
+            "status": "active"
+        }
+
         if is_arr:
-            if claimed_num == metric["raw"]:
+            if polarity["is_negated"]:
+                findings.append({
+                    "id": f"PY-T2-REV-CONF-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "CONFLICT",
+                    "reason_code": "NUMERICAL_MISMATCH",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "critical",
+                    "explanation": f"Negated ARR Financial Disclosure. Draft denies audited $18.5M Annual Recurring Revenue (ARR) ('{m.group(0).strip()}'), contradicting verified Deloitte FY25 statements.",
+                    "guideline_title": "ARR Financial Disclosure Contradiction",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": provenance,
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 Deloitte audit)"
+                    }
+                })
+            elif polarity["is_uncertain"]:
+                findings.append({
+                    "id": f"PY-T2-REV-UNV-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "UNVERIFIED",
+                    "reason_code": "MISSING_SOURCE",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "warning",
+                    "explanation": f"Unverified ARR Metric Assertion. Draft asserts tentative or unconfirmed ARR figures ('{m.group(0).strip()}'). Financial disclosures must cite audited Deloitte FY25 statements.",
+                    "guideline_title": "Unverified ARR Metric Assertion",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": provenance,
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 audited disclosure)"
+                    }
+                })
+            elif claimed_num == metric["raw"]:
                 findings.append({
                     "id": f"PY-T2-REV-{m.start()}",
                     "category": "claim_verification",
@@ -721,19 +903,11 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "start_index": m.start(),
                     "end_index": m.end(),
                     "severity": "success",
-                    "explanation": f"Audited financial statement verified ($18.5M ARR).",
+                    "explanation": "Audited financial statement verified ($18.5M ARR).",
                     "guideline_title": "Audited ARR Metric",
                     "guideline_citation": f"{metric['source']} — {metric['citation']}",
                     "authority_level": 1,
-                    "evidence": {
-                        "metric_id": "MTR-006",
-                        "metric_name": metric["name"],
-                        "approved_value": metric["approved"],
-                        "source_document": metric["source"],
-                        "section_citation": metric["citation"],
-                        "validity_period": metric["validity"],
-                        "status": "active"
-                    },
+                    "evidence": provenance,
                     "rewrites": {
                         "direct": "$18.5M ARR",
                         "punchy": "$18.5M in audited annual recurring revenue",
@@ -754,15 +928,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "guideline_title": "False ARR Financial Disclosure",
                     "guideline_citation": f"{metric['source']} — {metric['citation']}",
                     "authority_level": 1,
-                    "evidence": {
-                        "metric_id": "MTR-006",
-                        "metric_name": metric["name"],
-                        "approved_value": metric["approved"],
-                        "source_document": metric["source"],
-                        "section_citation": metric["citation"],
-                        "validity_period": metric["validity"],
-                        "status": "active"
-                    },
+                    "evidence": provenance,
                     "rewrites": {
                         "direct": "$18.5M ARR",
                         "punchy": "$18.5M in audited annual recurring revenue",
@@ -784,15 +950,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "guideline_title": "Unverified Annual Revenue Metric",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 2,
-                "evidence": {
-                    "metric_id": "MTR-006",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
+                "evidence": provenance,
                 "rewrites": {
                     "direct": "Annual revenue figure pending approved disclosure",
                     "punchy": "Contact us for approved financial disclosures",
@@ -874,19 +1032,22 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 }
             })
 
-    # 5. Security & Certifications (with Preceding & Subsequent Negation Handling)
+    # 5. Security & Certifications (with sentence polarity)
     soc_matches = list(re.finditer(r"\b(?:(?:not(?:\s+only)?|never|no|without)\s+)?SOC 2(?: Type II)?\b", text, re.IGNORECASE))
     for m in soc_matches:
         metric = VERIFIED_METRICS["MTR-002"]
-        preceding = text[max(0, m.start() - 40):m.start()].lower()
-        subsequent = text[m.end():min(len(text), m.end() + 40)].lower()
-        full_context = f"{preceding} {m.group(0)} {subsequent}".lower()
-        is_affirmative_idiom = bool(re.search(r"\bnot\s+(?:only|just|merely)\b", full_context))
-        has_negation = bool(re.search(r"\b(not|never|neither|no|non|unverified|without|lack|lacks|lacking|failed|cannot)\b", full_context))
-        has_subsequent_negation = bool(re.search(r"\b(?:is\s+no\s+longer|no\s+longer|is\s+not|not\s+active|revoked|expired|cancelled|void|suspended|lacks?|without|failed)\b", subsequent))
-        is_negated = (has_negation and not is_affirmative_idiom) or has_subsequent_negation
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
+        provenance = {
+            "metric_id": "MTR-002",
+            "metric_name": metric["name"],
+            "approved_value": metric["approved"],
+            "source_document": metric["source"],
+            "section_citation": metric["citation"],
+            "validity_period": metric["validity"],
+            "status": "active"
+        }
 
-        if is_negated:
+        if polarity["is_negated"]:
             findings.append({
                 "id": f"PY-T2-SOC-NEG-{m.start()}",
                 "category": "claim_verification",
@@ -896,22 +1057,35 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "start_index": m.start(),
                 "end_index": m.end(),
                 "severity": "critical",
-                "explanation": f"Negated Security Attestation '{m.group(0)}' directly contradicts company's active A-LIGN SOC 2 Type II certification.",
+                "explanation": f"Negated Security Attestation. Copy asserts '{m.group(0)}', which directly contradicts the company's verified A-LIGN SOC 2 Type II certification.",
                 "guideline_title": "Security Compliance Contradiction",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-002",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
+                "evidence": provenance,
                 "rewrites": {
                     "direct": "backed by SOC 2 Type II security certification",
                     "punchy": "attested SOC 2 Type II compliance",
+                    "conservative": "holding active SOC 2 Type II certification"
+                }
+            })
+        elif polarity["is_uncertain"]:
+            findings.append({
+                "id": f"PY-T2-SOC-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unverified Security Certification. Draft expresses uncertainty regarding SOC 2 Type II compliance ('{m.group(0)}'). Security attestations require active A-LIGN certification confirmation.",
+                "guideline_title": "Unverified Security Certification",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "SOC 2 Type II certified",
+                    "punchy": "attested SOC 2 Type II security",
                     "conservative": "holding active SOC 2 Type II certification"
                 }
             })
@@ -928,15 +1102,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "guideline_title": "Security Compliance Certification",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
-                "evidence": {
-                    "metric_id": "MTR-002",
-                    "metric_name": metric["name"],
-                    "approved_value": metric["approved"],
-                    "source_document": metric["source"],
-                    "section_citation": metric["citation"],
-                    "validity_period": metric["validity"],
-                    "status": "active"
-                },
+                "evidence": provenance,
                 "rewrites": {
                     "direct": "SOC 2 Type II certified",
                     "punchy": "attested SOC 2 Type II security",
@@ -946,19 +1112,15 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
 
     # 6. Retention (e.g. 94.2% verified, 94.9%/95% conflict, negation check)
     ret_matches = list(re.finditer(
-        r"(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:of\s+|is\s+|at\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))",
+        r"(?:([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)\s+(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?|"
+        r"(?:(?:active\s+)?(?:global\s+)?enterprise\s+)?(?:client\s+)?retention(?:\s+rate)?\s+(?:(?:is|was|of|at|stands\s+at|remains|dropped\s+to|fell\s+to)\s+)?(?:(?:no\s+longer|not)\s+)?(?:(?:is|at|of)\s+)?([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent))",
         text, re.IGNORECASE
     ))
     for m in ret_matches:
         num_str = m.group(1) or m.group(2)
         claimed_num = float(num_str)
         metric = VERIFIED_METRICS["MTR-001"]
-        preceding = text[max(0, m.start() - 50):m.start()].lower()
-        subsequent = text[m.end():min(len(text), m.end() + 50)].lower()
-        has_preceding_negation = bool(re.search(r"\b(?:not|no|never|does\s+not|do\s+not|did\s+not|cannot|can't|without|lack|lacks|lacking|fails?|disclaims?)\b", preceding))
-        has_subsequent_negation = bool(re.search(r"\b(?:is\s+not|no\s+longer|dropped|fallen|void)\b", subsequent))
-        is_affirmative_idiom = bool(re.search(r"\bnot\s+only\b", preceding))
-        is_negated = (has_preceding_negation and not is_affirmative_idiom) or has_subsequent_negation
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
 
         provenance = {
             "metric_id": "MTR-001",
@@ -970,7 +1132,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "status": "active"
         }
 
-        if is_negated:
+        if polarity["is_negated"]:
             findings.append({
                 "id": f"PY-T2-RET-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -989,6 +1151,27 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                     "direct": "94.2% enterprise client retention rate",
                     "punchy": "audited 94.2% enterprise client retention",
                     "conservative": "holding audited 94.2% client retention rate (KPMG FY25)"
+                }
+            })
+        elif polarity["is_uncertain"]:
+            findings.append({
+                "id": f"PY-T2-RET-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Unqualified Retention Assertion. Draft asserts unconfirmed retention rate ('{m.group(0).strip()}'). Must cite verified KPMG 94.2% audit baseline without equivocation.",
+                "guideline_title": "Unverified Retention Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise retention",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "94.2% client retention rate audited by KPMG"
                 }
             })
         elif claimed_num == metric["raw"]:
