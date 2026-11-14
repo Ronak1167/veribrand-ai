@@ -2,12 +2,15 @@
 
 import React from 'react';
 import { Sparkles, CheckCircle2, Flame, Database, FileText } from 'lucide-react';
+import { User } from '@/types';
 
 interface NavbarProps {
   activeTab: 'editor' | 'reviewer' | 'heatmap' | 'vault';
   setActiveTab: (tab: 'editor' | 'reviewer' | 'heatmap' | 'vault') => void;
   pendingReviewsCount: number;
   onSelectPreset: (presetId: string) => void;
+  currentUser?: User | null;
+  onSwitchUser?: (email: string) => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -15,6 +18,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   setActiveTab,
   pendingReviewsCount,
   onSelectPreset,
+  currentUser,
+  onSwitchUser,
 }) => {
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-900 shadow-xs">
@@ -96,10 +101,10 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           </nav>
 
-          {/* Quick Demo Scenarios for Judges */}
+          {/* Quick Demo Scenarios & Session Persona Switcher */}
           <div className="flex items-center space-x-2">
-            <span className="hidden lg:inline text-xs text-slate-500 flex items-center gap-1 font-medium">
-              <Sparkles className="w-3 h-3 text-indigo-500" /> Quick Scenarios:
+            <span className="hidden xl:inline text-xs text-slate-500 flex items-center gap-1 font-medium">
+              <Sparkles className="w-3 h-3 text-indigo-500" /> Scenarios:
             </span>
             <select
               onChange={(e) => {
@@ -110,13 +115,36 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               defaultValue=""
               aria-label="Load demo scenario for testing"
-              className="bg-white text-slate-800 text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium shadow-xs"
+              className="bg-white text-slate-800 text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium shadow-xs"
             >
-              <option value="" disabled>Load Test Scenario...</option>
+              <option value="" disabled>Load Scenario...</option>
               <option value="draft-broken-marketing">Scenario 1: Broken High-Risk (6 Flags)</option>
               <option value="draft-borderline">Scenario 2: Subtle Borderline (2 Flags)</option>
               <option value="draft-clean-compliant">Scenario 3: 100% Compliant (Green Pass)</option>
             </select>
+
+            {/* Authenticated Persona Switcher */}
+            <div className="flex items-center space-x-1.5 pl-1 border-l border-slate-200">
+              <div className="hidden sm:flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                <span className="text-[11px] font-semibold text-slate-800">{currentUser?.name?.split(' ')[0] || 'User'}</span>
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700">
+                  {currentUser?.role || 'reviewer'}
+                </span>
+              </div>
+              {onSwitchUser && (
+                <select
+                  value={currentUser?.email || 'reviewer@inkloom.ai'}
+                  onChange={(e) => onSwitchUser(e.target.value)}
+                  aria-label="Switch User Persona"
+                  className="bg-white text-slate-700 text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-xs font-medium"
+                >
+                  <option value="creator@inkloom.ai">Elena (Creator)</option>
+                  <option value="reviewer@inkloom.ai">Marcus (Reviewer)</option>
+                  <option value="admin@inkloom.ai">Admin (Governance)</option>
+                </select>
+              )}
+            </div>
           </div>
         </div>
       </div>

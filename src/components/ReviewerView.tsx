@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { ReviewSubmission } from '@/types';
+import { ReviewSubmission, User as UserType } from '@/types';
 import {
   CheckCircle2,
   ShieldCheck,
@@ -16,6 +16,7 @@ import { generateContentHash } from '@/lib/engine/crypto-audit';
 
 interface ReviewerViewProps {
   submissions: ReviewSubmission[];
+  currentUser?: UserType | null;
   onApproveSubmission: (submissionId: string, sha256Hash: string, reviewerName: string, approvalMode: 'standard' | 'exception', exceptionRationale?: string) => void;
   onRequestChanges: (submissionId: string, commentText: string) => void;
   onAddComment?: (submissionId: string, commentText: string, author: string, role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel') => void;
@@ -25,6 +26,7 @@ interface ReviewerViewProps {
 
 export const ReviewerView: React.FC<ReviewerViewProps> = ({
   submissions,
+  currentUser,
   onApproveSubmission,
   onRequestChanges,
   onAddComment,
@@ -35,7 +37,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
     submissions[0]?.id || ''
   );
   const [newComment, setNewComment] = useState<string>('');
-  const [reviewerName, setReviewerName] = useState<string>('Brand Guardian (Demo Reviewer)');
+  const reviewerName = currentUser?.name || 'Marcus Vance (Brand Reviewer)';
   const [feedbackNote, setFeedbackNote] = useState<string>('');
   const [changesModalOpen, setChangesModalOpen] = useState<boolean>(false);
   const [exceptionModalOpen, setExceptionModalOpen] = useState<boolean>(false);
@@ -45,9 +47,10 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
 
   const activeItem = submissions.find((s) => s.id === selectedId) || submissions[0];
 
+  const currentRevisionId = activeItem?.currentRevisionId || 'REV-1';
   const acceptedAppealIds = new Set(
     (activeItem?.appealDecisions ?? [])
-      .filter((decision) => decision.decision === 'accepted')
+      .filter((decision) => decision.decision === 'accepted' && decision.revisionId === currentRevisionId)
       .map((decision) => decision.findingId)
   );
   const criticalConflicts = activeItem?.auditResult.findings.filter(
@@ -69,9 +72,10 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
       // fallback
     }
 
+    const effectiveReviewer = currentUser?.name || reviewerName;
     const timestamp = new Date().toISOString();
-    const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
-    onApproveSubmission(activeItem.id, hash, reviewerName, 'standard');
+    const hash = await generateContentHash(activeItem.currentText, effectiveReviewer, timestamp);
+    onApproveSubmission(activeItem.id, hash, effectiveReviewer, 'standard');
   };
 
   const handleApproveWithException = async () => {
@@ -87,10 +91,11 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
       // fallback
     }
 
+    const effectiveReviewer = currentUser?.name || reviewerName;
     const timestamp = new Date().toISOString();
-    const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
+    const hash = await generateContentHash(activeItem.currentText, effectiveReviewer, timestamp);
 
-    onApproveSubmission(activeItem.id, hash, reviewerName, 'exception', exceptionRationale.trim());
+    onApproveSubmission(activeItem.id, hash, effectiveReviewer, 'exception', exceptionRationale.trim());
     setExceptionModalOpen(false);
     setExceptionRationale('');
   };
@@ -114,17 +119,15 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
         <div className="flex items-center space-x-3 text-xs">
           <div className="bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center space-x-2">
             <User className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="text-slate-600">Reviewer (Demo Mode):</span>
-            <input
-              type="text"
-              value={reviewerName}
-              onChange={(e) => setReviewerName(e.target.value)}
-              title="Input-based demo reviewer identity (Enterprise SSO/RBAC scheduled for Round 3)"
-              className="bg-transparent text-slate-900 font-semibold focus:outline-none w-52 border-b border-dashed border-slate-300 hover:border-indigo-500 focus:border-indigo-600"
-            />
+            <span className="text-slate-600">Active Reviewer:</span>
+            <span className="font-semibold text-slate-900">{currentUser?.name || reviewerName}</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-800 uppercase tracking-wider">
+              {currentUser?.role || 'reviewer'}
+            </span>
           </div>
-          <span className="text-[10px] text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-medium">
-            Editable Demo Identity
+          <span className="text-[10px] text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 font-medium flex items-center gap-1">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
+            Session Authenticated
           </span>
         </div>
       </div>
@@ -311,15 +314,62 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                             </span>
                             <p className="text-indigo-900 italic">&ldquo;{f.override.rationale}&rdquo;</p>
                             {(() => {
-                              const decision = activeItem.appealDecisions?.find((item) => item.findingId === f.id);
-                              return decision ? (
-                                <p className="text-[10px] text-indigo-700 font-medium">Appeal {decision.decision} by {decision.reviewerName}: {decision.rationale}</p>
-                              ) : (
+                              const currentRevId = activeItem.currentRevisionId || 'REV-1';
+                              const currentDecision = activeItem.appealDecisions?.find(
+                                (item) => item.findingId === f.id && item.revisionId === currentRevId
+                              );
+                              const pastDecision = activeItem.appealDecisions?.find(
+                                (item) => item.findingId === f.id && item.revisionId !== currentRevId
+                              );
+
+                              if (currentDecision) {
+                                return (
+                                  <div className="p-2 rounded bg-indigo-100/70 border border-indigo-200">
+                                    <p className="text-[10px] text-indigo-900 font-medium">
+                                      Appeal {currentDecision.decision} for {currentRevId} by {currentDecision.reviewerName}: &ldquo;{currentDecision.rationale}&rdquo;
+                                    </p>
+                                  </div>
+                                );
+                              }
+
+                              const activeReviewerName = currentUser?.name || reviewerName;
+
+                              return (
                                 <div className="space-y-2 pt-1">
-                                  <input value={appealRationale} onChange={(e) => setAppealRationale(e.target.value)} placeholder="Reviewer rationale for appeal decision" className="w-full bg-white text-slate-900 text-[11px] border border-slate-300 rounded p-2" />
+                                  {pastDecision && (
+                                    <div className="p-1.5 rounded bg-amber-50 border border-amber-200 text-[10px] text-amber-900 font-medium">
+                                      Historical Appeal ({pastDecision.revisionId}): {pastDecision.decision} by {pastDecision.reviewerName}. Re-adjudication required for current revision ({currentRevId}).
+                                    </div>
+                                  )}
+                                  <input
+                                    value={appealRationale}
+                                    onChange={(e) => setAppealRationale(e.target.value)}
+                                    placeholder={`Reviewer rationale for ${currentRevId} appeal decision`}
+                                    className="w-full bg-white text-slate-900 text-[11px] border border-slate-300 rounded p-2"
+                                  />
                                   <div className="flex gap-2">
-                                    <button onClick={() => { if (appealRationale.trim()) { onDecideAppeal(activeItem.id, f.id, 'accepted', appealRationale, reviewerName); setAppealRationale(''); } }} className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px]">Accept Appeal</button>
-                                    <button onClick={() => { if (appealRationale.trim()) { onDecideAppeal(activeItem.id, f.id, 'rejected', appealRationale, reviewerName); setAppealRationale(''); } }} className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px]">Reject Appeal</button>
+                                    <button
+                                      onClick={() => {
+                                        if (appealRationale.trim()) {
+                                          onDecideAppeal(activeItem.id, f.id, 'accepted', appealRationale, activeReviewerName);
+                                          setAppealRationale('');
+                                        }
+                                      }}
+                                      className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-semibold"
+                                    >
+                                      Accept Appeal ({currentRevId})
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        if (appealRationale.trim()) {
+                                          onDecideAppeal(activeItem.id, f.id, 'rejected', appealRationale, activeReviewerName);
+                                          setAppealRationale('');
+                                        }
+                                      }}
+                                      className="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-semibold"
+                                    >
+                                      Reject Appeal ({currentRevId})
+                                    </button>
                                   </div>
                                 </div>
                               );

@@ -271,25 +271,70 @@ for rule in BRAND_RULES:
 _python_ac.build_failure_links()
 
 def analyze_sentence_polarity(text: str, start_index: int, end_index: int) -> Dict[str, bool]:
-    # Scope polarity to the assertion, not the entire sentence. Sentence punctuation
-    # and contrastive/coordinating conjunctions separate independent assertions.
-    left = text[:start_index]
-    boundaries = list(re.finditer(r"[;.!?\n]|\b(?:but|however|whereas|while|and)\b", left, re.IGNORECASE))
-    clause_start = boundaries[-1].end() if boundaries else 0
-    right_boundary = re.search(
-        r"[;.!?\n]|\b(?:but|however|whereas|while|and)\b",
-        text[end_index:],
+    # 1. Identify sentence boundaries (excluding decimal points like 99.9 or 18.5)
+    left_text = text[:start_index]
+    sentence_delims = [m.end() for m in re.finditer(r"(?<!\d)[.!?\n]+(?!\d)", left_text)]
+    sentence_start = sentence_delims[-1] if sentence_delims else 0
+
+    right_text = text[end_index:]
+    m_right = re.search(r"(?<!\d)[.!?\n]+(?!\d)", right_text)
+    sentence_end = end_index + m_right.start() if m_right else len(text)
+
+    full_sentence = text[sentence_start:sentence_end].strip()
+    terminator = m_right.group(0).strip() if m_right else ""
+
+    # Question detection
+    has_question_mark = "?" in text[start_index:sentence_end+1] or "?" in terminator
+    aux_start = bool(re.match(
+        r"^\s*(?:do|does|did|is|are|was|were|can|could|would|should|will|have|has|had|am)\s+(?:we|i|you|they|our|the|a|any)\b",
+        full_sentence,
         re.IGNORECASE
-    )
-    clause_end = end_index + right_boundary.start() if right_boundary else len(text)
+    ))
+    is_question = has_question_mark or aux_start
+
+    # Clause boundaries within sentence for assertion polarity
+    clause_delims = [m.end() for m in re.finditer(r"[;.!?\n]|\b(?:but|however|whereas|while)\b", left_text[sentence_start:], re.IGNORECASE)]
+    clause_start = sentence_start + clause_delims[-1] if clause_delims else sentence_start
+
+    m_clause_right = re.search(r"[;.!?\n]|\b(?:but|however|whereas|while)\b", text[end_index:sentence_end], re.IGNORECASE)
+    clause_end = end_index + m_clause_right.start() if m_clause_right else sentence_end
+
     preceding = text[clause_start:start_index].lower()
     matched = text[start_index:end_index].lower()
     subsequent = text[end_index:clause_end].lower()
+    full_subsequent = text[end_index:sentence_end].lower()
 
-    is_affirmative_idiom = bool(
+    # Competitor attribution
+    competitor_pattern = re.compile(
+        r"\b(?:competitors?|rivals?|other\s+vendors?|other\s+platforms?|competing\s+solutions?|alternative\s+products?)\s+(?:claims?|states?|offers?|has|have|reports?|provides?|boasts?|guarantees?|promises?)\b"
+        r"|\bunlike\s+(?:our\s+)?(?:competitors?|rivals?|others?)\b"
+        r"|\bcompetitor\s+[a-z0-9]+\b",
+        re.IGNORECASE
+    )
+    is_competitor = bool(competitor_pattern.search(text[sentence_start:end_index]))
+
+    # Disclaimer detection
+    disclaimer_pattern = re.compile(
+        r"\b(?:do\s+not\s+guarantee|does\s+not\s+guarantee|not\s+guaranteed|without\s+guarantee|no\s+guarantee|disclaims?|disclaimed|disclaiming|not\s+(?:an?\s+)?sla|non-binding|subject\s+to\s+change|not\s+binding|uncommitted)\b"
+        r"|\([^)]*(?:not\s+guaranteed|disclaimed|no\s+guarantee)[^)]*\)",
+        re.IGNORECASE
+    )
+    is_disclaimer = bool(disclaimer_pattern.search(full_subsequent) or disclaimer_pattern.search(preceding))
+
+    # Expired / unrenewed
+    expired_pattern = re.compile(
+        r"\b(?:has\s+not\s+been\s+renewed|not\s+been\s+renewed|not\s+renewed|unrenewed|is\s+expired|has\s+expired|expired|lapsed|has\s+lapsed|cancelled|revoked|voided)\b",
+        re.IGNORECASE
+    )
+    is_expired = bool(expired_pattern.search(full_subsequent) or expired_pattern.search(preceding))
+
+    # Double negation vs affirmative idiom
+    has_double_negation = bool(re.search(r"\bnot\s+(?:only|just|merely)\s+(?:not|no|never|neither|without|lacks?)\b", preceding + " " + matched, re.IGNORECASE))
+    is_affirmative_idiom = not has_double_negation and bool(
         re.search(r"\bnot\s+(?:only|just|merely)\s+(?:(?:a|an|the)\s+)?$", preceding, re.IGNORECASE)
         or re.match(r"^\s*not\s+(?:only|just|merely)\b", matched, re.IGNORECASE)
     )
+
     negation_pattern = re.compile(
         r"\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b",
         re.IGNORECASE
@@ -304,7 +349,8 @@ def analyze_sentence_polarity(text: str, start_index: int, end_index: int) -> Di
         re.IGNORECASE
     ))
     is_negated = not is_affirmative_idiom and (
-        bool(negation_pattern.search(preceding))
+        has_double_negation
+        or bool(negation_pattern.search(preceding))
         or bool(subsequent_negation.search(subsequent))
         or has_internal_negation
     )
@@ -320,7 +366,11 @@ def analyze_sentence_polarity(text: str, start_index: int, end_index: int) -> Di
     return {
         "is_negated": is_negated,
         "is_uncertain": is_uncertain,
-        "is_affirmative_idiom": is_affirmative_idiom
+        "is_affirmative_idiom": is_affirmative_idiom,
+        "is_question": is_question,
+        "is_competitor": is_competitor,
+        "is_disclaimer": is_disclaimer,
+        "is_expired": is_expired,
     }
 
 def run_tier1_filter(text: str) -> Tuple[List[Dict[str, Any]], float]:
@@ -476,7 +526,69 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "status": "active"
         }
 
-        if polarity["is_negated"]:
+        if polarity["is_question"]:
+            findings.append({
+                "id": f"PY-T2-UPTIME-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Interrogative SLA Availability Inquiry. Draft poses an inquiry regarding SLA availability ('{m.group(0).strip()}'). SLA inquiries cannot be verified as factual commitments.",
+                "guideline_title": "Unverified SLA Availability Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "backed by a 99.9% enterprise uptime SLA",
+                    "punchy": "99.9% enterprise uptime SLA",
+                    "conservative": "audited 99.9% service availability SLA"
+                }
+            })
+        elif polarity["is_competitor"]:
+            findings.append({
+                "id": f"PY-T2-UPTIME-SUGG-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "SUGGESTION",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "info",
+                "explanation": f"Third-Party Competitor SLA Reference ('{m.group(0).strip()}'). Comparative advertising claims regarding competitor SLAs must be substantiated with verified third-party documentation under FTC comparative advertising guides.",
+                "guideline_title": "Competitor Metric Reference",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "backed by a 99.9% enterprise uptime SLA",
+                    "punchy": "99.9% enterprise uptime SLA",
+                    "conservative": "holding audited 99.9% service availability SLA"
+                }
+            })
+        elif polarity["is_disclaimer"]:
+            findings.append({
+                "id": f"PY-T2-UPTIME-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Disclaimed SLA Specification. Draft references SLA availability ('{m.group(0).strip()}') with an explicit disclaimer of guarantee or non-binding qualification. Official SLA commitments must be stated authoritatively according to the approved 99.9% MSA specification.",
+                "guideline_title": "Disclaimed SLA Specification",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "backed by a 99.9% enterprise uptime SLA",
+                    "punchy": "99.9% enterprise uptime SLA",
+                    "conservative": "holding audited 99.9% service availability SLA"
+                }
+            })
+        elif polarity["is_negated"]:
             findings.append({
                 "id": f"PY-T2-UPTIME-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -619,7 +731,64 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
 
         metric = VERIFIED_METRICS["MTR-004"]
 
-        if is_brand_or_org:
+        if polarity["is_question"]:
+            findings.append({
+                "id": f"PY-T2-CUST-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Interrogative Customer Count Inquiry. Draft poses an inquiry regarding customer count ('{m.group(0).strip()}'). Inquiries cannot be verified as factual marketing disclosures.",
+                "guideline_title": "Unverified Customer Count Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif polarity["is_competitor"]:
+            findings.append({
+                "id": f"PY-T2-CUST-SUGG-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "SUGGESTION",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "info",
+                "explanation": f"Third-Party Customer Count Reference ('{m.group(0).strip()}'). Competitor customer claims must be substantiated with verified disclosures.",
+                "guideline_title": "Competitor Customer Metric Reference",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": {
+                    "metric_id": "MTR-004",
+                    "metric_name": metric["name"],
+                    "approved_value": metric["approved"],
+                    "source_document": metric["source"],
+                    "section_citation": metric["citation"],
+                    "validity_period": metric["validity"],
+                    "status": "active"
+                },
+                "rewrites": {
+                    "direct": "420+ active enterprise customer accounts",
+                    "punchy": "420+ active enterprise customer accounts",
+                    "conservative": "at least 420 active enterprise customer accounts"
+                }
+            })
+        elif is_brand_or_org:
             findings.append({
                 "id": f"PY-T2-CUST-ENT-{m.start()}",
                 "category": "claim_verification",
@@ -883,7 +1052,48 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
         }
 
         if is_arr:
-            if polarity["is_negated"]:
+            if polarity["is_question"]:
+                findings.append({
+                    "id": f"PY-T2-REV-UNV-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "UNVERIFIED",
+                    "reason_code": "MISSING_SOURCE",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "warning",
+                    "explanation": f"Interrogative Financial Metric Inquiry. Draft poses an inquiry regarding ARR ('{m.group(0).strip()}'). Inquiries cannot be verified as factual financial disclosures.",
+                    "guideline_title": "Unverified ARR Metric Assertion",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": provenance,
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 audited disclosure)"
+                    }
+                })
+            elif polarity["is_competitor"]:
+                findings.append({
+                    "id": f"PY-T2-REV-SUGG-{m.start()}",
+                    "category": "claim_verification",
+                    "verdict": "SUGGESTION",
+                    "matched_text": m.group(0).strip(),
+                    "start_index": m.start(),
+                    "end_index": m.end(),
+                    "severity": "info",
+                    "explanation": f"Third-Party Financial Metric Reference ('{m.group(0).strip()}'). Competitor financial claims must cite verified audited statements.",
+                    "guideline_title": "Competitor Financial Metric Reference",
+                    "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                    "authority_level": 1,
+                    "evidence": provenance,
+                    "rewrites": {
+                        "direct": "$18.5M ARR",
+                        "punchy": "$18.5M in audited annual recurring revenue",
+                        "conservative": "$18.5M ARR (FY25 Deloitte audit)"
+                    }
+                })
+            elif polarity["is_negated"]:
                 findings.append({
                     "id": f"PY-T2-REV-CONF-{m.start()}",
                     "category": "claim_verification",
@@ -1078,7 +1288,49 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "status": "active"
         }
 
-        if polarity["is_negated"]:
+        if polarity["is_question"]:
+            findings.append({
+                "id": f"PY-T2-SOC-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Interrogative Security Attestation Inquiry. Draft poses an inquiry regarding SOC 2 Type II compliance ('{m.group(0)}'). Inquiries cannot be verified as factual security attestations.",
+                "guideline_title": "Unverified Security Certification",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "SOC 2 Type II certified",
+                    "punchy": "attested SOC 2 Type II security",
+                    "conservative": "holding active SOC 2 Type II certification"
+                }
+            })
+        elif polarity["is_competitor"]:
+            findings.append({
+                "id": f"PY-T2-SOC-SUGG-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "SUGGESTION",
+                "matched_text": m.group(0),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "info",
+                "explanation": f"Third-Party Security Reference ('{m.group(0)}'). Competitor security claims must be substantiated with verified audit disclosures.",
+                "guideline_title": "Competitor Security Reference",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 2,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "SOC 2 Type II certified",
+                    "punchy": "attested SOC 2 Type II security",
+                    "conservative": "holding active SOC 2 Type II certification"
+                }
+            })
+        elif polarity["is_expired"] or polarity["is_negated"]:
+            exp_text = f"Lapsed / Unrenewed Security Attestation. Draft asserts '{m.group(0)}' as unrenewed or expired, contradicting active A-LIGN SOC 2 Type II certification status (valid 2026-2027)." if polarity["is_expired"] else f"Negated Security Attestation. Copy asserts '{m.group(0)}', which directly contradicts the company's verified A-LIGN SOC 2 Type II certification."
             findings.append({
                 "id": f"PY-T2-SOC-NEG-{m.start()}",
                 "category": "claim_verification",
@@ -1088,7 +1340,7 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
                 "start_index": m.start(),
                 "end_index": m.end(),
                 "severity": "critical",
-                "explanation": f"Negated Security Attestation. Copy asserts '{m.group(0)}', which directly contradicts the company's verified A-LIGN SOC 2 Type II certification.",
+                "explanation": exp_text,
                 "guideline_title": "Security Compliance Contradiction",
                 "guideline_citation": f"{metric['source']} — {metric['citation']}",
                 "authority_level": 1,
@@ -1163,7 +1415,48 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
             "status": "active"
         }
 
-        if polarity["is_negated"]:
+        if polarity["is_question"]:
+            findings.append({
+                "id": f"PY-T2-RET-UNV-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "UNVERIFIED",
+                "reason_code": "MISSING_SOURCE",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "warning",
+                "explanation": f"Interrogative Retention Metric Inquiry. Draft poses an inquiry regarding retention ('{m.group(0).strip()}'). Inquiries cannot be verified as factual client retention metrics.",
+                "guideline_title": "Unverified Retention Assertion",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise retention",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "94.2% client retention rate audited by KPMG"
+                }
+            })
+        elif polarity["is_competitor"]:
+            findings.append({
+                "id": f"PY-T2-RET-SUGG-{m.start()}",
+                "category": "claim_verification",
+                "verdict": "SUGGESTION",
+                "matched_text": m.group(0).strip(),
+                "start_index": m.start(),
+                "end_index": m.end(),
+                "severity": "info",
+                "explanation": f"Third-Party Retention Metric Reference ('{m.group(0).strip()}'). Competitor retention claims must be substantiated with verified quality audits.",
+                "guideline_title": "Competitor Retention Metric Reference",
+                "guideline_citation": f"{metric['source']} — {metric['citation']}",
+                "authority_level": 1,
+                "evidence": provenance,
+                "rewrites": {
+                    "direct": "94.2% enterprise retention",
+                    "punchy": "audited 94.2% enterprise client retention",
+                    "conservative": "94.2% client retention rate audited by KPMG"
+                }
+            })
+        elif polarity["is_negated"]:
             findings.append({
                 "id": f"PY-T2-RET-CONF-{m.start()}",
                 "category": "claim_verification",
@@ -1320,6 +1613,10 @@ def run_tier2_claim_verifier(text: str) -> Tuple[List[Dict[str, Any]], float]:
         text, re.IGNORECASE
     ))
     for m in unsupp_matches:
+        polarity = analyze_sentence_polarity(text, m.start(), m.end())
+        if polarity["is_negated"]:
+            # Author denies the metric: e.g. "We do not have 17 regional offices"
+            continue
         findings.append({
             "id": f"PY-T2-UNSUPP-{m.start()}",
             "category": "claim_verification",

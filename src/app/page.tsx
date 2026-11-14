@@ -12,6 +12,7 @@ import {
   LintFinding,
   ReviewSubmission,
   AmbiguityMetric,
+  User,
 } from '@/types';
 import {
   PRESET_DRAFTS,
@@ -25,10 +26,21 @@ const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
     channel: 'press_release',
     creatorName: 'Elena Rostova (Senior Copywriter)',
     submittedAt: '2026-11-13T09:00:00.000Z',
+    currentRevisionId: 'REV-1',
     status: 'pending_review',
     originalText: PRESET_DRAFTS[1].content,
     currentText: PRESET_DRAFTS[1].content,
     auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
+    revisionHistory: [
+      {
+        revisionId: 'REV-1',
+        version: 1,
+        text: PRESET_DRAFTS[1].content,
+        auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
+        submittedAt: '2026-11-13T09:00:00.000Z',
+        submittedBy: 'Elena Rostova (Senior Copywriter)',
+      },
+    ],
     comments: [
       {
         id: 'C-1',
@@ -45,17 +57,29 @@ const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
     channel: 'linkedin',
     creatorName: 'Marcus Vance (Growth Lead)',
     submittedAt: '2026-11-13T08:00:00.000Z',
+    currentRevisionId: 'REV-1',
     status: 'approved',
     originalText: PRESET_DRAFTS[2].content,
     currentText: PRESET_DRAFTS[2].content,
     auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
+    revisionHistory: [
+      {
+        revisionId: 'REV-1',
+        version: 1,
+        text: PRESET_DRAFTS[2].content,
+        auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
+        submittedAt: '2026-11-13T08:00:00.000Z',
+        submittedBy: 'Marcus Vance (Growth Lead)',
+      },
+    ],
     sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
     signedOffAt: '2026-11-13T08:30:00.000Z',
-    signedOffBy: 'Brand Guardian (Demo Reviewer)',
+    signedOffBy: 'Marcus Vance (Brand Reviewer)',
+    approvalMode: 'standard',
     comments: [
       {
         id: 'C-2',
-        author: 'Brand Guardian (Demo Reviewer)',
+        author: 'Marcus Vance (Brand Reviewer)',
         role: 'Brand Reviewer',
         text: 'Clean audit pass. Approved for public syndication.',
         timestamp: '2026-11-13T08:30:00.000Z',
@@ -75,6 +99,15 @@ export default function Home() {
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [rewriteNotice, setRewriteNotice] = useState<string | null>(null);
 
+  // Authenticated user persona
+  const [currentUser, setCurrentUser] = useState<User | null>({
+    id: 'USR-REVIEWER-01',
+    email: 'reviewer@inkloom.ai',
+    name: 'Marcus Vance (Brand Reviewer)',
+    role: 'reviewer',
+    createdAt: new Date().toISOString(),
+  });
+
   // Restore persistent state after hydration without causing SSR mismatch or synchronous render cascades
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -87,10 +120,61 @@ export default function Home() {
         if (savedSubs) setSubmissions(JSON.parse(savedSubs));
       } catch {}
       setIsHydrated(true);
+
+      // Async fetch server-persisted submissions from SQLite
+      fetch('/api/submissions')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.ok && Array.isArray(data.submissions) && data.submissions.length > 0) {
+            setSubmissions(data.submissions);
+          }
+        })
+        .catch(() => {});
     }, 0);
 
     return () => clearTimeout(timer);
   }, []);
+
+  const handleSwitchUser = async (email: string) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password: 'Password123!' }),
+      });
+      const data = await res.json();
+      if (data.ok && data.user) {
+        setCurrentUser(data.user);
+      }
+    } catch {
+      // Offline fallback
+      if (email.includes('creator')) {
+        setCurrentUser({
+          id: 'USR-CREATOR-01',
+          email: 'creator@inkloom.ai',
+          name: 'Elena Rostova (Senior Copywriter)',
+          role: 'creator',
+          createdAt: new Date().toISOString(),
+        });
+      } else if (email.includes('admin')) {
+        setCurrentUser({
+          id: 'USR-ADMIN-01',
+          email: 'admin@inkloom.ai',
+          name: 'Brand Governance Admin',
+          role: 'admin',
+          createdAt: new Date().toISOString(),
+        });
+      } else {
+        setCurrentUser({
+          id: 'USR-REVIEWER-01',
+          email: 'reviewer@inkloom.ai',
+          name: 'Marcus Vance (Brand Reviewer)',
+          role: 'reviewer',
+          createdAt: new Date().toISOString(),
+        });
+      }
+    }
+  };
 
   // Sync state changes to localStorage after hydration
   useEffect(() => {
@@ -206,17 +290,27 @@ export default function Home() {
 
   // Submit Draft to Reviewer Queue
   const handleSubmitForReview = (title: string, creatorName: string) => {
+    const subId = `SUB-${Date.now().toString(36).toUpperCase()}`;
+    const now = new Date().toISOString();
     const newSubmission: ReviewSubmission = {
-      id: `SUB-${Date.now().toString(36).toUpperCase()}`,
+      id: subId,
       title,
       channel,
       creatorName,
-      submittedAt: new Date().toISOString(),
+      submittedAt: now,
+      currentRevisionId: 'REV-1',
       status: 'pending_review',
       originalText: content,
       currentText: content,
       auditResult: { ...auditResult },
-      revisionHistory: [{ version: 1, text: content, auditResult: { ...auditResult }, submittedAt: new Date().toISOString(), submittedBy: creatorName }],
+      revisionHistory: [{
+        revisionId: 'REV-1',
+        version: 1,
+        text: content,
+        auditResult: { ...auditResult },
+        submittedAt: now,
+        submittedBy: creatorName,
+      }],
       appealDecisions: [],
       comments: [
         {
@@ -224,13 +318,25 @@ export default function Home() {
           author: creatorName,
           role: 'Creator',
           text: `Submitted draft for review across ${channel.replace('_', ' ')} with compliance score of ${auditResult.complianceScore}/100.`,
-          timestamp: new Date().toISOString(),
+          timestamp: now,
         },
       ],
     };
 
     setSubmissions((prev) => [newSubmission, ...prev]);
     setActiveTab('reviewer');
+
+    // Async persist to SQLite backend
+    fetch('/api/submissions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title,
+        channel,
+        originalText: content,
+        creatorName,
+      }),
+    }).catch(() => {});
   };
 
   // Brand Reviewer Approval with SHA-256 Hash
@@ -244,9 +350,10 @@ export default function Home() {
     setSubmissions((prev) =>
       prev.map((sub) => {
         if (sub.id === submissionId) {
+          const currentRevId = sub.currentRevisionId || 'REV-1';
           const acceptedAppealIds = new Set(
             (sub.appealDecisions ?? [])
-              .filter((decision) => decision.decision === 'accepted')
+              .filter((decision) => decision.decision === 'accepted' && decision.revisionId === currentRevId)
               .map((decision) => decision.findingId)
           );
           const hasCriticalUnresolved = sub.auditResult.findings.some(
@@ -256,6 +363,19 @@ export default function Home() {
           );
           if (hasCriticalUnresolved && (approvalMode !== 'exception' || !exceptionRationale?.trim())) return sub;
           if (!hasCriticalUnresolved && approvalMode === 'exception' && !exceptionRationale?.trim()) return sub;
+
+          // Async persist to SQLite backend
+          fetch(`/api/submissions/${submissionId}/review`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'approve',
+              approvalMode,
+              reviewerName,
+              exceptionRationale,
+            }),
+          }).catch(() => {});
+
           return {
             ...sub,
             status: 'approved',
@@ -287,14 +407,30 @@ export default function Home() {
     if (!current || current.status !== 'changes_requested' || !revisedText.trim()) return;
     const revisedAudit = auditContent(revisedText, current.channel);
     const submittedAt = new Date().toISOString();
+
     setSubmissions((prev) => prev.map((sub) => {
       if (sub.id !== submissionId || sub.status !== 'changes_requested') return sub;
       const history = sub.revisionHistory ?? [{
+        revisionId: 'REV-1',
         version: 1, text: sub.originalText, auditResult: sub.auditResult,
         submittedAt: sub.submittedAt, submittedBy: sub.creatorName,
       }];
+      const nextVersion = history.length + 1;
+      const nextRevId = `REV-${nextVersion}`;
+
+      // Async persist to SQLite backend
+      fetch(`/api/submissions/${submissionId}/resubmit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revisedText,
+          creatorName,
+        }),
+      }).catch(() => {});
+
       return {
         ...sub,
+        currentRevisionId: nextRevId,
         status: 'pending_review',
         currentText: revisedText,
         auditResult: revisedAudit,
@@ -305,7 +441,8 @@ export default function Home() {
         approvalMode: undefined,
         exceptionRationale: undefined,
         revisionHistory: [...history, {
-          version: history.length + 1,
+          revisionId: nextRevId,
+          version: nextVersion,
           text: revisedText,
           auditResult: revisedAudit,
           submittedAt,
@@ -315,7 +452,7 @@ export default function Home() {
           id: 'COM-' + Date.now(),
           author: creatorName,
           role: 'Creator',
-          text: 'Resubmitted revision ' + (history.length + 1) + ' for review. New compliance score: ' + revisedAudit.complianceScore + '/100.',
+          text: 'Resubmitted revision ' + nextVersion + ' (' + nextRevId + ') for review. New compliance score: ' + revisedAudit.complianceScore + '/100.',
           timestamp: submittedAt,
         }],
       };
@@ -333,16 +470,41 @@ export default function Home() {
     const decidedAt = new Date().toISOString();
     setSubmissions((prev) => prev.map((sub) => {
       if (sub.id !== submissionId) return sub;
+      const currentRevId = sub.currentRevisionId || 'REV-1';
       const decisions = sub.appealDecisions ?? [];
-      if (decisions.some((item) => item.findingId === findingId)) return sub;
+      if (decisions.some((item) => item.findingId === findingId && item.revisionId === currentRevId)) return sub;
+
+      // Async persist to SQLite backend
+      fetch(`/api/submissions/${submissionId}/appeal`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          revisionId: currentRevId,
+          findingId,
+          decision,
+          rationale: rationale.trim(),
+          reviewerName,
+        }),
+      }).catch(() => {});
+
       return {
         ...sub,
-        appealDecisions: [...decisions, { findingId, decision, rationale: rationale.trim(), reviewerName, decidedAt }],
+        appealDecisions: [
+          ...decisions,
+          {
+            revisionId: currentRevId,
+            findingId,
+            decision,
+            rationale: rationale.trim(),
+            reviewerName,
+            decidedAt,
+          },
+        ],
         comments: [...sub.comments, {
           id: 'COM-' + Date.now(),
           author: reviewerName,
           role: 'Brand Reviewer',
-          text: 'Creator appeal ' + decision + ' for finding ' + findingId + ': ' + rationale.trim(),
+          text: 'Creator appeal ' + decision + ' for ' + currentRevId + ' (finding ' + findingId + '): ' + rationale.trim(),
           timestamp: decidedAt,
         }],
       };
@@ -351,6 +513,16 @@ export default function Home() {
 
   // Brand Reviewer Request Changes
   const handleRequestChanges = (submissionId: string, commentText: string) => {
+    // Async persist to SQLite backend
+    fetch(`/api/submissions/${submissionId}/review`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'request_changes',
+        commentText,
+      }),
+    }).catch(() => {});
+
     setSubmissions((prev) =>
       prev.map((sub) => {
         if (sub.id === submissionId) {
@@ -361,7 +533,7 @@ export default function Home() {
               ...sub.comments,
               {
                 id: `COM-${Date.now()}`,
-                author: 'Brand Reviewer',
+                author: currentUser?.name || 'Marcus Vance (Brand Reviewer)',
                 role: 'Brand Reviewer',
                 text: `Changes Requested: ${commentText}`,
                 timestamp: new Date().toISOString(),
@@ -413,6 +585,8 @@ export default function Home() {
         setActiveTab={setActiveTab}
         pendingReviewsCount={pendingCount}
         onSelectPreset={handleSelectPreset}
+        currentUser={currentUser}
+        onSwitchUser={handleSwitchUser}
       />
 
       {/* Main Content Area */}
@@ -434,6 +608,7 @@ export default function Home() {
         {activeTab === 'reviewer' && (
           <ReviewerView
             submissions={submissions}
+            currentUser={currentUser}
             onApproveSubmission={handleApproveSubmission}
             onRequestChanges={handleRequestChanges}
             onAddComment={handleAddComment}

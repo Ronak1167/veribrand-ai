@@ -262,12 +262,17 @@ interface ExtractedClaim {
   isLowerBound?: boolean;
   isNegated?: boolean;
   isUncertain?: boolean;
+  isQuestion?: boolean;
+  isCompetitorAttribution?: boolean;
+  isDisclaimerOrUnqualified?: boolean;
+  isExpiredOrLapsed?: boolean;
 }
 
 /**
  * Sentence-aware polarity and assertion analyzer.
- * Identifies sentence/clause boundaries using [.!?\n;] (excluding decimal points),
- * and checks for affirmative idioms, negations (contractions, denial verbs, phrasal negations),
+ * Identifies sentence and clause boundaries (excluding decimal points in numbers),
+ * and checks for questions, competitor attributions, disclaimers, unrenewed certifications,
+ * affirmative idioms, negations (contractions, denial verbs, phrasal negations),
  * and hedging/uncertainty within the governing clause.
  */
 function analyzeSentencePolarity(
@@ -278,33 +283,70 @@ function analyzeSentencePolarity(
   isNegated: boolean;
   isUncertain: boolean;
   isAffirmativeIdiom: boolean;
+  isQuestion: boolean;
+  isCompetitorAttribution: boolean;
+  isDisclaimerOrUnqualified: boolean;
+  isExpiredOrLapsed: boolean;
 } {
-  // Scope polarity to the assertion, not the entire sentence. Sentence punctuation
-  // and contrastive/coordinating conjunctions separate independent assertions.
-  const leftBoundaries = /[;.!?\n]|\b(?:but|however|whereas|while|and)\b/gi;
-  let clauseStart = 0;
-  let boundary: RegExpExecArray | null;
-  while ((boundary = leftBoundaries.exec(text.slice(0, startIndex))) !== null) {
-    clauseStart = boundary.index + boundary[0].length;
-  }
+  // 1. Identify sentence boundaries (excluding decimal points like 99.9 or 18.5)
+  const leftText = text.slice(0, startIndex);
+  const sentenceDelims = Array.from(leftText.matchAll(/(?<!\d)[.!?\n]+(?!\d)/g));
+  const sentenceStart = sentenceDelims.length > 0
+    ? (sentenceDelims[sentenceDelims.length - 1].index! + sentenceDelims[sentenceDelims.length - 1][0].length)
+    : 0;
 
-  const rightBoundaries = /[;.!?\n]|\b(?:but|however|whereas|while|and)\b/gi;
-  rightBoundaries.lastIndex = endIndex;
-  const nextBoundary = rightBoundaries.exec(text);
-  const clauseEnd = nextBoundary ? nextBoundary.index : text.length;
+  const rightText = text.slice(endIndex);
+  const mRight = /(?<!\d)[.!?\n]+(?!\d)/.exec(rightText);
+  const sentenceEnd = mRight ? endIndex + mRight.index : text.length;
+
+  const fullSentence = text.slice(sentenceStart, sentenceEnd).trim();
+  const terminator = mRight ? mRight[0].trim() : '';
+
+  // Question detection: question mark in sentence, or inversion start (e.g. "Do we...", "Are we...")
+  const hasQuestionMark = text.slice(startIndex, sentenceEnd + 1).includes('?') || terminator.includes('?');
+  const auxStart = /^\s*(?:do|does|did|is|are|was|were|can|could|would|should|will|have|has|had|am)\s+(?:we|i|you|they|our|the|a|any)\b/i.test(fullSentence);
+  const isQuestion = hasQuestionMark || auxStart;
+
+  // Clause boundaries within the sentence for assertion polarity
+  const leftClauseDelims = Array.from(text.slice(sentenceStart, startIndex).matchAll(/[;.!?\n]|\b(?:but|however|whereas|while)\b/gi));
+  const clauseStart = leftClauseDelims.length > 0
+    ? (sentenceStart + leftClauseDelims[leftClauseDelims.length - 1].index! + leftClauseDelims[leftClauseDelims.length - 1][0].length)
+    : sentenceStart;
+
+  const rightClauseMatch = /[;.!?\n]|\b(?:but|however|whereas|while)\b/gi.exec(text.slice(endIndex, sentenceEnd));
+  const clauseEnd = rightClauseMatch ? endIndex + rightClauseMatch.index : sentenceEnd;
 
   const preceding = text.slice(clauseStart, startIndex).toLowerCase();
   const matched = text.slice(startIndex, endIndex).toLowerCase();
   const subsequent = text.slice(endIndex, clauseEnd).toLowerCase();
+  const fullSubsequent = text.slice(endIndex, sentenceEnd).toLowerCase();
 
-  // "Not only X" affirms X; it must be immediately attached to this assertion.
-  const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\s+(?:(?:a|an|the)\s+)?$/i.test(preceding) || /^\s*not\s+(?:only|just|merely)\b/i.test(matched);
+  // Competitor attribution
+  const competitorPattern = /\b(?:competitors?|rivals?|other\s+vendors?|other\s+platforms?|competing\s+solutions?|alternative\s+products?)\s+(?:claims?|states?|offers?|has|have|reports?|provides?|boasts?|guarantees?|promises?)\b|\bunlike\s+(?:our\s+)?(?:competitors?|rivals?|others?)\b|\bcompetitor\s+[a-z0-9]+\b/i;
+  const isCompetitorAttribution = competitorPattern.test(text.slice(sentenceStart, endIndex));
+
+  // Disclaimer detection (e.g. "do not guarantee it", "not guaranteed", "no guarantee", "disclaimed")
+  const disclaimerPattern = /\b(?:do\s+not\s+guarantee|does\s+not\s+guarantee|not\s+guaranteed|without\s+guarantee|no\s+guarantee|disclaims?|disclaimed|disclaiming|not\s+(?:an?\s+)?sla|non-binding|subject\s+to\s+change|not\s+binding|uncommitted)\b|\([^)]*(?:not\s+guaranteed|disclaimed|no\s+guarantee)[^)]*\)/i;
+  const isDisclaimerOrUnqualified = disclaimerPattern.test(fullSubsequent) || disclaimerPattern.test(preceding);
+
+  // Expired / unrenewed
+  const expiredPattern = /\b(?:has\s+not\s+been\s+renewed|not\s+been\s+renewed|not\s+renewed|unrenewed|is\s+expired|has\s+expired|expired|lapsed|has\s+lapsed|cancelled|revoked|voided)\b/i;
+  const isExpiredOrLapsed = expiredPattern.test(fullSubsequent) || expiredPattern.test(preceding);
+
+  // Double negation vs affirmative idiom:
+  // "not only not" affirms negative (double negation) -> isAffirmativeIdiom = false, isNegated = true
+  const hasDoubleNegation = /\bnot\s+(?:only|just|merely)\s+(?:not|no|never|neither|without|lacks?)\b/i.test(preceding + ' ' + matched);
+  const isAffirmativeIdiom = !hasDoubleNegation && (
+    /\bnot\s+(?:only|just|merely)\s+(?:(?:a|an|the)\s+)?$/i.test(preceding) ||
+    /^\s*not\s+(?:only|just|merely)\b/i.test(matched)
+  );
 
   const negationPattern = /\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b/i;
   const subsequentNegationPattern = /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|are\s+not|was\s+not|were\s+not|isn't(?:\s+active)?|aren't|wasn't|weren't|not\s+active|not\s+guaranteed|revoked|expired|cancelled|void|suspended|dropped|fallen|disclaimed|failed|lacks?|without)\b/i;
   const hasInternalNegation = /\b(?:not|never|no|without|no\s+longer|isn't|aren't|cannot|can't)\b/i.test(matched);
 
   const isNegated = !isAffirmativeIdiom && (
+    hasDoubleNegation ||
     negationPattern.test(preceding) ||
     subsequentNegationPattern.test(subsequent) ||
     hasInternalNegation
@@ -315,7 +357,15 @@ function analyzeSentencePolarity(
     uncertaintyPattern.test(matched) ||
     uncertaintyPattern.test(subsequent);
 
-  return { isNegated, isUncertain, isAffirmativeIdiom };
+  return {
+    isNegated,
+    isUncertain,
+    isAffirmativeIdiom,
+    isQuestion,
+    isCompetitorAttribution,
+    isDisclaimerOrUnqualified,
+    isExpiredOrLapsed,
+  };
 }
 
 function extractClaimsFromText(text: string): ExtractedClaim[] {
@@ -336,6 +386,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       rawNumber: parseFloat(numStr),
       isNegated: polarity.isNegated,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -354,6 +408,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       rawNumber: parseFloat(match[1]),
       isNegated: true,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -379,6 +437,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       isLowerBound,
       isNegated: polarity.isNegated,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -410,6 +472,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       rawNumber: parseFloat(rawDigits),
       isNegated: polarity.isNegated,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -439,6 +505,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       rawNumber: parseFloat(numStr),
       isNegated: polarity.isNegated,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -468,6 +538,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       claimType: 'security',
       isNegated: polarity.isNegated,
       isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
+      isCompetitorAttribution: polarity.isCompetitorAttribution,
+      isDisclaimerOrUnqualified: polarity.isDisclaimerOrUnqualified,
+      isExpiredOrLapsed: polarity.isExpiredOrLapsed,
     });
   }
 
@@ -475,12 +549,20 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
   const unsupportedRegex =
     /(?:over|more than|supports?|serves?|serving|with|have|has|operating in|across)?\s*([0-9,]+)\+?\s+(?:(?:global|regional|international|active|paying|registered|daily|monthly)\s+)?(?:subscribers|users|downloads|client accounts|offices|locations|branches|countries|regions|headquarters|team members|employees|engineers|patents|awards|partner organizations|partners|integrations)\b/gi;
   while ((match = unsupportedRegex.exec(text)) !== null) {
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
+    if (polarity.isNegated) {
+      // Author denies the metric: e.g. "We do not have 17 regional offices"
+      continue;
+    }
     claims.push({
       text: match[0].trim(),
       startIndex: match.index,
       endIndex: match.index + match[0].length,
       claimType: 'unsupported_metric',
       rawNumber: parseInt(match[1].replace(/,/g, ''), 10),
+      isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
+      isQuestion: polarity.isQuestion,
     });
   }
 
@@ -513,7 +595,69 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (claim.isNegated) {
+      if (claim.isQuestion) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Interrogative SLA Availability Inquiry. Draft poses an inquiry regarding SLA availability ("${claim.text}"). SLA inquiries cannot be verified as factual commitments.`,
+          guidelineTitle: 'Unverified SLA Availability Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: 'backed by a 99.9% enterprise uptime SLA',
+            punchy: '99.9% enterprise uptime SLA',
+            conservative: 'audited 99.9% service availability SLA',
+          },
+        });
+      } else if (claim.isCompetitorAttribution) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'SUGGESTION',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'info',
+          explanation: `Third-Party Competitor SLA Reference ("${claim.text}"). Comparative advertising claims regarding competitor SLAs must be substantiated with verified third-party documentation under FTC comparative advertising guides.`,
+          guidelineTitle: 'Competitor Metric Reference',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: 'backed by a 99.9% enterprise uptime SLA',
+            punchy: '99.9% enterprise uptime SLA',
+            conservative: 'holding audited 99.9% service availability SLA',
+          },
+        });
+      } else if (claim.isDisclaimerOrUnqualified) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Disclaimed SLA Specification. Draft references SLA availability ("${claim.text}") with an explicit disclaimer of guarantee or non-binding qualification. Official SLA commitments must be stated authoritatively according to the approved 99.9% MSA specification.`,
+          guidelineTitle: 'Disclaimed SLA Specification',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: 'backed by a 99.9% enterprise uptime SLA',
+            punchy: '99.9% enterprise uptime SLA',
+            conservative: 'holding audited 99.9% service availability SLA',
+          },
+        });
+      } else if (claim.isNegated) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -612,7 +756,48 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (claim.isNegated) {
+      if (claim.isQuestion) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Interrogative Customer Count Inquiry. Draft poses an inquiry regarding customer count ("${claim.text}"). Inquiries cannot be verified as factual marketing disclosures.`,
+          guidelineTitle: 'Unverified Customer Count Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
+          },
+        });
+      } else if (claim.isCompetitorAttribution) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'SUGGESTION',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'info',
+          explanation: `Third-Party Customer Count Reference ("${claim.text}"). Competitor customer claims must be substantiated with verified disclosures.`,
+          guidelineTitle: 'Competitor Customer Metric Reference',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          evidence: provenance,
+          rewrites: {
+            direct: '420+ active enterprise customer accounts',
+            punchy: '420+ active enterprise customer accounts',
+            conservative: 'at least 420 active enterprise customer accounts',
+          },
+        });
+      } else if (claim.isNegated) {
         // Direct contradiction: denying audited customer account disclosures
         findings.push({
           id: `T2-CLAIM-${i}`,
@@ -813,7 +998,48 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (claim.isNegated) {
+      if (claim.isQuestion) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Interrogative Financial Metric Inquiry. Draft poses an inquiry regarding ARR ("${claim.text}"). Inquiries cannot be verified as factual financial disclosures.`,
+          guidelineTitle: 'Unverified ARR Metric Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '$18.5M ARR',
+            punchy: '$18.5M in audited annual recurring revenue',
+            conservative: '$18.5M ARR (FY25 audited disclosure)',
+          },
+        });
+      } else if (claim.isCompetitorAttribution) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'SUGGESTION',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'info',
+          explanation: `Third-Party Financial Metric Reference ("${claim.text}"). Competitor financial claims must cite verified audited statements.`,
+          guidelineTitle: 'Competitor Financial Metric Reference',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '$18.5M ARR',
+            punchy: '$18.5M in audited annual recurring revenue',
+            conservative: '$18.5M ARR (FY25 Deloitte audit)',
+          },
+        });
+      } else if (claim.isNegated) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -1022,7 +1248,48 @@ function runTier2ClaimVerification(text: string): {
         status: 'active',
       };
 
-      if (claim.isNegated) {
+      if (claim.isQuestion) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Interrogative Retention Metric Inquiry. Draft poses an inquiry regarding retention ("${claim.text}"). Inquiries cannot be verified as factual client retention metrics.`,
+          guidelineTitle: 'Unverified Retention Assertion',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise retention',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: '94.2% client retention rate audited by KPMG',
+          },
+        });
+      } else if (claim.isCompetitorAttribution) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'SUGGESTION',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'info',
+          explanation: `Third-Party Retention Metric Reference ("${claim.text}"). Competitor retention claims must be substantiated with verified quality audits.`,
+          guidelineTitle: 'Competitor Retention Metric Reference',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: provenance,
+          rewrites: {
+            direct: '94.2% enterprise retention',
+            punchy: 'audited 94.2% enterprise client retention',
+            conservative: '94.2% client retention rate audited by KPMG',
+          },
+        });
+      } else if (claim.isNegated) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -1164,7 +1431,56 @@ function runTier2ClaimVerification(text: string): {
     } else if (claim.claimType === 'security') {
       const metric = VERIFIED_METRICS.find((m) => m.id === 'MTR-002')!;
 
-      if (claim.isNegated) {
+      if (claim.isQuestion) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'UNVERIFIED',
+          reasonCode: 'MISSING_SOURCE',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'warning',
+          explanation: `Interrogative Security Attestation Inquiry. Draft poses an inquiry regarding SOC 2 Type II compliance ("${claim.text}"). Inquiries cannot be verified as factual security attestations.`,
+          guidelineTitle: 'Unverified Security Certification',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 1,
+          evidence: {
+            metricId: metric.id,
+            metricName: metric.metricName,
+            approvedValue: metric.approvedValue,
+            sourceDocument: metric.sourceDoc,
+            sectionCitation: metric.section,
+            validityPeriod: '2026-2027',
+            lastAuditedDate: '2026-06-30',
+            status: 'active',
+          },
+          rewrites: {
+            direct: 'SOC 2 Type II certified',
+            punchy: 'attested SOC 2 Type II security',
+            conservative: 'holding active SOC 2 Type II certification',
+          },
+        });
+      } else if (claim.isCompetitorAttribution) {
+        findings.push({
+          id: `T2-CLAIM-${i}`,
+          category: 'claim_verification',
+          verdict: 'SUGGESTION',
+          matchedText: claim.text,
+          startIndex: claim.startIndex,
+          endIndex: claim.endIndex,
+          severity: 'info',
+          explanation: `Third-Party Security Reference ("${claim.text}"). Competitor security claims must be substantiated with verified audit disclosures.`,
+          guidelineTitle: 'Competitor Security Reference',
+          guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
+          authorityLevel: 2,
+          rewrites: {
+            direct: 'SOC 2 Type II certified',
+            punchy: 'attested SOC 2 Type II security',
+            conservative: 'holding active SOC 2 Type II certification',
+          },
+        });
+      } else if (claim.isExpiredOrLapsed || claim.isNegated) {
         findings.push({
           id: `T2-CLAIM-${i}`,
           category: 'claim_verification',
@@ -1174,7 +1490,9 @@ function runTier2ClaimVerification(text: string): {
           startIndex: claim.startIndex,
           endIndex: claim.endIndex,
           severity: 'critical',
-          explanation: `Negated Security Attestation. Copy asserts "${claim.text}", which directly contradicts the company's verified A-LIGN SOC 2 Type II certification.`,
+          explanation: claim.isExpiredOrLapsed
+            ? `Lapsed / Unrenewed Security Attestation. Draft asserts "${claim.text}" as unrenewed or expired, contradicting active A-LIGN SOC 2 Type II certification status (valid 2026-2027).`
+            : `Negated Security Attestation. Copy asserts "${claim.text}", which directly contradicts the company's verified A-LIGN SOC 2 Type II certification.`,
           guidelineTitle: 'Security Compliance Contradiction',
           guidelineCitation: `${metric.sourceDoc} — ${metric.section}`,
           authorityLevel: 1,

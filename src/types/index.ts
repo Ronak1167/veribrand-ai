@@ -113,6 +113,22 @@ export interface BrandRule {
   citation: string;
 }
 
+export type UserRole = 'creator' | 'reviewer' | 'admin';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+export interface UserSession {
+  token: string;
+  user: User;
+  expiresAt: string;
+}
+
 export interface ReviewComment {
   id: string;
   author: string;
@@ -122,15 +138,20 @@ export interface ReviewComment {
 }
 
 export interface SubmissionRevision {
+  revisionId?: string;
   version: number;
   text: string;
   auditResult: AuditResult;
+  sha256Hash?: string;
   submittedAt: string;
   submittedBy: string;
 }
 
 export interface AppealDecision {
+  id?: string;
+  revisionId?: string;
   findingId: string;
+  findingFingerprint?: string;
   decision: 'accepted' | 'rejected';
   rationale: string;
   reviewerName: string;
@@ -142,6 +163,7 @@ export interface ReviewSubmission {
   title: string;
   channel: ChannelType;
   creatorName: string;
+  currentRevisionId?: string;
   submittedAt: string;
   status: 'pending_review' | 'changes_requested' | 'approved';
   originalText: string;
@@ -155,6 +177,18 @@ export interface ReviewSubmission {
   exceptionRationale?: string;
   revisionHistory?: SubmissionRevision[];
   appealDecisions?: AppealDecision[];
+}
+
+export interface AuditTrailEntry {
+  id: number;
+  eventType: string;
+  actorId: string;
+  actorRole: string;
+  submissionId?: string;
+  revisionId?: string;
+  details: Record<string, unknown>;
+  ipAddress?: string;
+  timestamp: string;
 }
 
 export interface AmbiguityMetric {
