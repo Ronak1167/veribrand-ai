@@ -1,193 +1,189 @@
-# VeriBrand AI: Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
+# VeriBrand AI
 
-[![CodeNova India 2026](https://img.shields.io/badge/Hackathon-CodeNova%20India%202026-indigo.svg)](https://antigravity.dev)
-[![Track: Inkloom AI](https://img.shields.io/badge/Track-Inkloom%20AI%20(Brand%20Governance)-cyan.svg)](https://inkloom.ai)
-[![Team: Team Deccans](https://img.shields.io/badge/Team-Team%20Deccans-emerald.svg)](https://github.com/Ronak1167)
-[![Solo Architect](https://img.shields.io/badge/Solo%20Builder-Ronak%20Jain-purple.svg)](mailto:ronak1167.h@gmail.com)
-[![Next.js 16](https://img.shields.io/badge/Next.js-16%20App%20Router-black.svg)](https://nextjs.org)
-[![Python FastAPI](https://img.shields.io/badge/Backend-FastAPI%20Async-009688.svg)](https://fastapi.tiangolo.com)
-[![SQLite ACID](https://img.shields.io/badge/Persistence-SQLite%20WAL-003B57.svg)](https://sqlite.org)
-[![WCAG 2.1 AA](https://img.shields.io/badge/Accessibility-WCAG%202.1%20AA-blue.svg)](https://www.w3.org/WAI/standards-guidelines/wcag/)
+Pre-publication brand-governance workspace built with Next.js, TypeScript, a deterministic claim verifier, and SQLite-backed review workflows.
 
-> **Round 2: The Build Submission — Enterprise Production-Ready Edition**  
-> **Problem Statement by Inkloom AI**: Build an intelligent brand-governance platform that reviews content before publication, checking it against approved guidelines, facts, and assets. Replace punitive rejections with transparent citations and intent-preserving corrections.
+> **Project status:** Hackathon MVP with authenticated local workflows. It is not independently certified for regulated or enterprise production use.
 
----
+## What is implemented
 
-## 🌟 The Core Vision: "Coaching & Elevation over Gatekeeping"
+- Deterministic text scanning and configured-metric claim checks in the TypeScript and Python engines.
+- Claim polarity handling for questions, negation, disclaimers, competitor attribution, and financial metric distinctions. The engine is rule-based; it is not an LLM and cannot establish facts beyond configured evidence.
+- Revisioned submissions, reviewer comments, appeal decisions, and review status stored in SQLite.
+- First-administrator bootstrap, password login, HTTP-only session cookies, and server-side role checks.
+- Server-generated revision hashes and approval hashes. Approval hash verification is available from the individual submission API.
+- Evidence **metadata** records. The current implementation does not upload, retain, parse, or independently validate source-document files.
+- A hex-color palette and contrast calculator. It does not inspect uploaded images or extract image palettes.
+- Pattern-based PII redaction. This is a best-effort helper, not comprehensive DLP or a guarantee that all sensitive information is detected.
+- A local ambiguity heatmap with seeded benchmark values; it is not a complete multi-tenant analytics service.
 
-Modern enterprises publish at dizzying velocity across dispersed teams, freelance agencies, and generative AI drafting tools. When brand governance acts as a rigid, black-box gatekeeper with binary rejections, creators bypass review workflows.
+## Architecture
 
-**VeriBrand AI** transforms brand governance from a punitive blocker into an active, explainable co-pilot:
-1. **Durable Brand Vault & Evidence Provenance**: Ground-truth approved metrics, trademark rules, and evidence citations stored with durable SQLite persistence (`data/veribrand.db`).
-2. **Two-Tier Hybrid Pipeline**: Fast in-memory Aho-Corasick automaton for high-velocity lexical scanning paired with a deterministic tri-state claim verifier (`VERIFIED`, `CONFLICT`, `UNVERIFIED`).
-3. **Intent-Preserving Explainable Rewrites**: Generates 3 tone-matched alternatives (Direct, Punchy, Conservative) with 1-click adoption and stale rewrite safety.
-4. **Human-in-the-Loop Review Workflow**: Revision-scoped appeal adjudication, structured exception sign-offs, and server-side canonical SHA-256 cryptographic provenance stamping.
-5. **Reverse Brand Intelligence**: Guideline Ambiguity Heatmap attributing creator overrides to stable rule identifiers, uncovering ambiguous brand guidelines.
-6. **Auxiliary Governance APIs**: Multi-modal visual palette WCAG AA/AAA validator (`/api/vision/palette`), automated PII and credential redactor (`/api/privacy/redact`), real evidence management (`/api/evidence`), and immutable audit trail (`/api/audit-trail`).
+- **Web application:** Next.js App Router, React, TypeScript, Tailwind CSS.
+- **Primary application engine:** TypeScript deterministic verifier used by the Next.js application.
+- **Optional Python service:** FastAPI implementation of the verifier. It is a separate service and is not the authoritative persistence/workflow backend for the Next.js UI.
+- **Persistence:** Node built-in `node:sqlite` database at `data/veribrand.db`, using SQLite WAL mode.
+- **Authentication:** Server-side SQLite sessions, HttpOnly cookies, per-account random-salt scrypt password hashes, and role checks on protected routes.
 
----
+The SQLite database and its containing directory must be on persistent writable storage. Do not use ephemeral serverless filesystem storage for a multi-instance deployment.
 
-## 🎯 The Three Named Improvements (Official Rubric Core)
+## Requirements
 
-| Named Improvement | Technical Architecture | User & Enterprise Value |
-|---|---|---|
-| **1. Deterministic Claim Verification Engine** | Deterministic Tri-State Model (`VERIFIED`, `CONFLICT`, `UNVERIFIED`). Compares supported assertions against approved Brand Vault metrics. Correctly handles questions, disclaimers, unrenewed/lapsed certifications, competitor claims, and complex double negations with zero false approvals. | Eliminates catastrophic brand and legal exposure by catching contradictory or ungrounded assertions prior to syndication. |
-| **2. Intent-Preserving Explainable Corrections** | Real-time redlines paired with exact rule citations and **3 Tone-Matched Alternatives** (*Direct*, *Punchy*, *Conservative*) with 1-click replacement. | Offers deterministic rewrite alternatives while preserving creator velocity and choice. |
-| **3. Reverse Brand Intelligence & Ambiguity Feedback Loop** | Heatmap calculating override-to-trigger ratios per stable rule ID. Uncovers guidelines with high creator confusion. | Closes the loop for CMOs and Brand Directors: identifies ambiguously worded guidelines rather than penalizing writers. |
+- Node.js 22.13+ (built-in `node:sqlite` required)
+- npm
+- Python 3.10+ only for the optional FastAPI service and Python test suite
 
----
+## Local setup
 
-## ⚡ Two-Tier Engine Architecture
+1. Install dependencies:
 
-```
-                       [ Content Draft Input ]
-                                  │
-          ┌───────────────────────┴───────────────────────┐
-          ▼                                               ▼
-   [ TIER-1 FILTER ]                          [ TIER-2 CLAIM VERIFIER ]
-Aho-Corasick Automaton (<1ms)             Configured-Metric Tri-State Claim Verifier
-  • Trademark Casing Rules                      • Sentence-Level Polarity Extraction
-  • Deprecated Jargon Terminology               • Decimal-Safe Question & Negation Parsing
-  • Non-Brand Hex Swatches                      • Ground Truth Numerical Verification
-          │                                               │
-          └───────────────────────┬───────────────────────┘
-                                  ▼
-                   [ Explainable Redline Matrix ]
-                 • Exact Stylebook / Legal Citation
-                 • Evidence provenance metadata
-                 • 3 Tone-Matched Alternatives (Direct/Punchy/Conservative)
-                                  │
-                                  ▼
-                [ Human-in-the-Loop Review Queue ]
-                 • Server-Side Role-Based Session Auth (Creator / Reviewer / Admin)
-                 • Revision-Scoped Appeal Adjudication (Prevents Stale Re-Use)
-                 • Side-by-Side Revision Diff View
-                 • Server-Side Canonical SHA-256 Integrity Stamp
-                                  │
-                                  ▼
-                 [ Reverse Brand Intelligence ]
-                 • Guideline Ambiguity Heatmap
-                 • Stylebook Clarification Recommendations
-```
-
----
-
-## 🛠️ Technology Stack & Decisions
-
-- **Frontend Canvas**: Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS, Lucide Icons, Canvas Confetti.
-- **Backend API**: Python FastAPI (Async ASGI), Pydantic V2 structured models, OpenAPI/Swagger docs.
-- **Deterministic Engine**: Dual-stack (TypeScript + Python) deterministic Aho-Corasick automaton with exact parity.
-- **Durable Persistence**: Built-in `node:sqlite` (`DatabaseSync` in Node v25) & Python `sqlite3` on `data/veribrand.db` with WAL mode and ACID transactions.
-- **Authentication & RBAC**: Server-side session authentication with HttpOnly cookies, password hashing (`scrypt`), and Creator/Reviewer/Admin authorization gates.
-- **Audit Cryptography**: Server-side canonical SHA-256 hashing and tamper-detection verification.
-- **Accessibility**: Semantic HTML, ARIA attributes, keyboard navigation, and WCAG 2.1 AA luminance contrast compliant.
-- **Containerization**: Multi-stage Docker build with non-root security runner and healthchecks.
-
----
-
-## 🚀 Quickstart Guide (Run Locally in 60 Seconds)
-
-### 1. Prerequisites
-- **Node.js**: v20+ (Node v22 or v25 recommended)
-- **Python**: 3.10+ (Python 3.12 or 3.14 tested)
-
-### 2. Run the Next.js Unified Application
 ```bash
-cd veribrand-ai
-npm install
+npm ci
+```
+
+2. Create a cryptographically random bootstrap token (at least 32 characters) and put it in an untracked `.env.local` file:
+
+```dotenv
+VERIBRAND_BOOTSTRAP_TOKEN=your-long-random-one-time-setup-token
+```
+
+Do not commit `.env.local` or share the token. The repository's `.env.example` contains a placeholder only.
+
+3. Start the application:
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000).
+
+4. On first visit, use the initial-administrator setup form. Enter the bootstrap token from `.env.local`, your name, email, and a strong password (at least 14 characters). The bootstrap endpoint works only while the users table is empty. After the first administrator is created, the bootstrap endpoint is permanently closed for that database.
+
+5. Sign in with the administrator account. Open **Brand Vault** to access the administrator-only User & Role Management panel. Create creator, reviewer, or additional administrator accounts there. The underlying admin-only endpoint is `POST /api/auth/users`.
+
+Example JSON body:
+
+```json
+{
+  "email": "reviewer@example.com",
+  "name": "Brand Reviewer",
+  "role": "reviewer",
+  "password": "use-a-unique-password-of-at-least-14-characters"
+}
+```
+
+Roles are `creator`, `reviewer`, and `admin`. A creator can create and revise their own submissions. Reviewers can review, adjudicate appeals, and approve. Administrators have elevated access.
+
+## Useful commands
+
+```bash
+npm run dev
+npm run lint
+npx tsc --noEmit
 npm run build
-npm start
+npm run start
 ```
-Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
-Default Test User Credentials:
-- **Reviewer**: `reviewer@inkloom.ai` / `Password123!`
-- **Creator**: `creator@inkloom.ai` / `Password123!`
-- **Admin**: `admin@inkloom.ai` / `Password123!`
+Optional Python service:
 
-### 3. Run the Python FastAPI Backend (Optional Dedicated Service)
 ```bash
-cd veribrand-ai/backend
-pip install -r requirements.txt
+cd backend
+python -m pip install -r requirements.txt
+```
+
+Set `VERIBRAND_PYTHON_API_KEY` to a cryptographically random value of at least 32 characters before starting the service. It binds to `127.0.0.1` by default. Set `VERIBRAND_PYTHON_HOST=0.0.0.0` only behind a trusted reverse proxy and configure `VERIBRAND_PYTHON_ALLOWED_ORIGINS` explicitly.
+
+```bash
+cd backend
 python main.py
 ```
-FastAPI Swagger docs available at **[http://localhost:8000/docs](http://localhost:8000/docs)**.
 
-### 4. Run with Docker
+The Python service is independent of the Next.js SQLite workflow. Its API and data are not automatically synchronized with the web application's database. All non-health Python endpoints require `X-API-Key`; `/health` is public.
+
+## API access model
+
+| Endpoint | Access |
+|---|---|
+| `GET /api/auth/bootstrap` | Public setup-state check |
+| `POST /api/auth/bootstrap` | Public only until the first admin exists; requires bootstrap token |
+| `POST /api/auth/login` | Public; rate-limited per process |
+| `GET /api/auth/me` | Authenticated |
+| `POST /api/auth/logout` | Authenticated session is invalidated |
+| `GET /api/auth/users` | Admin only; returns safe account metadata |
+| `POST /api/auth/users` | Admin only |
+| `GET /api/submissions` | Authenticated; creators see only their own submissions |
+| `POST /api/submissions` | Creator/admin |
+| `POST /api/submissions/:id/review` | Reviewer/admin |
+| `POST /api/submissions/:id/appeal` | Reviewer/admin |
+| `POST /api/submissions/:id/resubmit` | Owning creator/admin |
+| `POST /api/submissions/:id/comments` | Authenticated; creator ownership is enforced |
+| `GET /api/evidence` | Authenticated |
+| `POST /api/evidence` | Reviewer/admin; stores metadata only |
+| `GET /api/audit-trail` | Reviewer/admin |
+| `POST /api/privacy/redact` | Authenticated |
+| `POST /api/vision/palette` | Authenticated |
+| Python `/health` | Public health check only |
+| Python `/api/audit`, `/api/vault`, `/api/vision/contrast` | `X-API-Key` required |
+
+The stateless content audit endpoint and static brand-rule endpoint are public. Do not send confidential drafts to a public deployment unless you intentionally configure and secure that service for your use case.
+
+## Testing
+
+Core tests:
+
 ```bash
-cd veribrand-ai
-docker build -t veribrand-ai .
-docker run -p 3000:3000 veribrand-ai
-```
-
----
-
-## 🧪 Comprehensive Automated Verification Test Matrix
-
-VeriBrand AI includes an exhaustive test suite verifying every component empirically:
-
-```bash
-# 1. Lint and Static Typing
 npm run lint
-
-# 2. Production Build Verification
+npx tsc --noEmit
 npm run build
-
-# 3. Client Hydration & SSR Safety
-node test_hydration.mjs
-
-# 4. End-to-End Workflow & Human Review Sign-Off
-node test_workflow.mjs
-
-# 5. Core Python Engine Verification
-python backend/test_engine.py
-
-# 6. Assertion Polarity & Regression Suite (Zero False Approvals)
+python -m pytest -q
+python test_claim_regressions.py
 python test_assertion_regressions.py
-
-# 7. Cross-Revision Appeal Security (Prevents Stale Authorizations)
-python test_appeal_revision_security.py
-
-# 8. Differential Parity Between TypeScript and Python
-python test_differential.py
-
-# 9. Boundary Value Verification
-python test_boundary.py
-
-# 10. Adversarial Stress Suite (39 Variations)
-python test_adversarial.py
+python backend/test_engine.py
+python backend/test_api_security.py
+python -m compileall -q backend
+python -m pip check
+npm audit --omit=dev
 ```
 
----
+The HTTP-based tests require the Next.js application to be running at `http://localhost:3000`:
 
-## 🛡️ Enterprise Verification Invariants & Security Architecture
+```bash
+npm run dev
+# In another terminal:
+node test_auth_security.mjs
+node test_hydration.mjs
+python test_adversarial.py
+python test_boundary.py
+python test_differential.py
+python test_claim_regressions_api.py
+```
 
-1. **Zero False Approvals**:
-   - **Questions**: Inverted auxiliary phrases (`"Do we have SOC 2 certification?"`) or trailing question marks are flagged as `UNVERIFIED` and cannot yield 100/100.
-   - **Lapsed Certifications**: Phrases indicating unrenewed certifications (`"SOC 2 Type II certification has not been renewed"`) yield critical `CONFLICT`.
-   - **Disclaimed Guarantees**: Metric assertions qualified by disclaimers (`"We have 99.9% uptime but do not guarantee it"`) yield `UNVERIFIED`.
-   - **Competitor Metrics**: Exaggerated metrics attributed to competitors (`"Competitor claims 99.999% uptime"`) are tagged as `SUGGESTION` without contaminating the brand's own SLA rating.
-   - **Double Negation**: Sophisticated negative idioms (`"We are not only not SOC 2 certified"`) are parsed as negative assertions and flagged as `CONFLICT`.
-   - **Negated Metrics**: Negated unsupported metrics (`"We do not have 17 regional offices"`) are safely ignored, preventing false positives.
+Authenticated end-to-end tests require existing test creator and reviewer accounts. Set `VERIBRAND_TEST_CREATOR_EMAIL`, `VERIBRAND_TEST_CREATOR_PASSWORD`, `VERIBRAND_TEST_REVIEWER_EMAIL`, and `VERIBRAND_TEST_REVIEWER_PASSWORD` in your shell, then run `node test_workflow.mjs` and `python test_appeal_revision_security.py`. Do not commit test credentials. The first-visit hydration test treats expected unauthenticated `401` responses as normal.
 
-2. **Revision-Scoped Authorization**:
-   - Appeal decisions are bound strictly to `submissionId`, `revisionId`, and `findingFingerprint`.
-   - An appeal accepted on Revision 1 does not authorize approval of Revision 2. If a creator resubmits, unresolved critical findings on the new revision block approval until re-adjudicated or resolved.
+## Docker
 
-3. **Durable ACID Persistence**:
-   - Built on local SQLite with WAL mode (`PRAGMA journal_mode = WAL;`).
-   - All reviews, revisions, comments, appeal decisions, and evidence records persist across restarts.
+A multi-stage Dockerfile is provided. Build and runtime behavior must be verified on a machine with Docker available:
 
-4. **Cryptographic Provenance**:
-   - Upon sign-off, the server computes a canonical SHA-256 hash incorporating the final sanitized copy, the reviewer identity, and the ISO 8601 timestamp.
+```bash
+docker build -t veribrand-ai .
+docker run --rm -p 3000:3000 -e VERIBRAND_BOOTSTRAP_TOKEN="$VERIBRAND_BOOTSTRAP_TOKEN" veribrand-ai
+```
 
----
+Mount `/app/data` to persistent storage before relying on the database. Set a strong bootstrap token as a deployment secret. Do not expose it to the browser or commit it.
 
-## 👤 Team & Contribution Details
+## Security and operational limitations
 
-- **Hackathon**: CodeNova India 2026
-- **Track**: Inkloom AI (Brand Governance)
-- **Official Team Name**: Team Deccans (VeriBrand AI)
-- **Solo Architect & Full-Stack Engineer**: Ronak Jain (`ronak1167.h@gmail.com`)
-- **100% Solo Ownership**: End-to-end architecture, Next.js frontend canvas, FastAPI backend services, Aho-Corasick string matching, hybrid claim verifier, SQLite persistence, and UI/UX design.
+- The current SQLite workflow is intended for a single application instance with persistent local storage. Multi-instance concurrency, horizontal scaling, backups, disaster recovery, and production observability have not been established.
+- Login throttling is in-process and resets when the server restarts; use an edge/proxy or shared rate limiter for a public deployment.
+- The optional Python service uses a shared API key and has no distributed rate limiter. Keep it on loopback or put it behind a trusted gateway with rate limiting.
+- Evidence records are metadata, not document uploads or validated evidence.
+- PII detection is pattern-based and can miss sensitive data or produce false positives.
+- The editor's local context note is draft-only; it is not a persisted appeal, reviewer decision, or approval override.
+- Hashes provide tamper-evidence for the stored revision/approval data; they are not digital signatures, a trusted timestamp, or a WORM audit archive.
+- WCAG conformance has not been independently certified. The palette endpoint calculates color contrast for supplied hex values only.
+- Docker build and deployment must be run and verified in an environment with Docker and persistent storage available.
+
+## Project team
+
+- CodeNova India 2026 — Inkloom AI track
+- Team Deccans
+- Project implementation: Ronak Jain

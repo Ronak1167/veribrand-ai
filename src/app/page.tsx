@@ -2,6 +2,8 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
+import { LoginScreen } from '@/components/LoginScreen';
+import { AdminUsersPanel } from '@/components/AdminUsersPanel';
 import { EditorView } from '@/components/EditorView';
 import { ReviewerView } from '@/components/ReviewerView';
 import { AmbiguityHeatmapView } from '@/components/AmbiguityHeatmapView';
@@ -19,75 +21,6 @@ import {
   INITIAL_AMBIGUITY_METRICS,
 } from '@/lib/engine/brand-vault-data';
 
-const INITIAL_SUBMISSIONS: ReviewSubmission[] = [
-  {
-    id: 'SUB-INIT-01',
-    title: 'Q4 Product Launch Press Release',
-    channel: 'press_release',
-    creatorName: 'Elena Rostova (Senior Copywriter)',
-    submittedAt: '2026-11-13T09:00:00.000Z',
-    currentRevisionId: 'REV-1',
-    status: 'pending_review',
-    originalText: PRESET_DRAFTS[1].content,
-    currentText: PRESET_DRAFTS[1].content,
-    auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
-    revisionHistory: [
-      {
-        revisionId: 'REV-1',
-        version: 1,
-        text: PRESET_DRAFTS[1].content,
-        auditResult: auditContent(PRESET_DRAFTS[1].content, 'press_release'),
-        submittedAt: '2026-11-13T09:00:00.000Z',
-        submittedBy: 'Elena Rostova (Senior Copywriter)',
-      },
-    ],
-    comments: [
-      {
-        id: 'C-1',
-        author: 'Elena Rostova',
-        role: 'Creator',
-        text: 'Draft calibrated for enterprise buyers. The trademark phrasing and 99.9% uptime have been validated.',
-        timestamp: '2026-11-13T09:15:00.000Z',
-      },
-    ],
-  },
-  {
-    id: 'SUB-INIT-02',
-    title: 'Global Social Ad Campaign',
-    channel: 'linkedin',
-    creatorName: 'Marcus Vance (Growth Lead)',
-    submittedAt: '2026-11-13T08:00:00.000Z',
-    currentRevisionId: 'REV-1',
-    status: 'approved',
-    originalText: PRESET_DRAFTS[2].content,
-    currentText: PRESET_DRAFTS[2].content,
-    auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
-    revisionHistory: [
-      {
-        revisionId: 'REV-1',
-        version: 1,
-        text: PRESET_DRAFTS[2].content,
-        auditResult: auditContent(PRESET_DRAFTS[2].content, 'linkedin'),
-        submittedAt: '2026-11-13T08:00:00.000Z',
-        submittedBy: 'Marcus Vance (Growth Lead)',
-      },
-    ],
-    sha256Hash: 'sha256-a79f32e981bc881d723fae991206d44ef30198ca118ef4a78103bd29f8c1092e',
-    signedOffAt: '2026-11-13T08:30:00.000Z',
-    signedOffBy: 'Marcus Vance (Brand Reviewer)',
-    approvalMode: 'standard',
-    comments: [
-      {
-        id: 'C-2',
-        author: 'Marcus Vance (Brand Reviewer)',
-        role: 'Brand Reviewer',
-        text: 'Clean audit pass. Approved for public syndication.',
-        timestamp: '2026-11-13T08:30:00.000Z',
-      },
-    ],
-  },
-];
-
 export default function Home() {
   const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
   const [channel, setChannel] = useState<ChannelType>('linkedin');
@@ -95,94 +28,59 @@ export default function Home() {
   // Client hydration safe state initialization matching SSR
   const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
   const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
-  const [submissions, setSubmissions] = useState<ReviewSubmission[]>(INITIAL_SUBMISSIONS);
+  const [submissions, setSubmissions] = useState<ReviewSubmission[]>([]);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [rewriteNotice, setRewriteNotice] = useState<string | null>(null);
 
-  // Authenticated user persona
-  const [currentUser, setCurrentUser] = useState<User | null>({
-    id: 'USR-REVIEWER-01',
-    email: 'reviewer@inkloom.ai',
-    name: 'Marcus Vance (Brand Reviewer)',
-    role: 'reviewer',
-    createdAt: new Date().toISOString(),
-  });
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // Restore persistent state after hydration without causing SSR mismatch or synchronous render cascades
+  // Restore only non-authoritative editor preferences locally; submissions and decisions come from SQLite.
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    const restore = async () => {
       try {
         const saved = localStorage.getItem('veribrand_editor_content_v2');
         if (saved) setContent(saved);
         const savedMetrics = localStorage.getItem('veribrand_ambiguity_metrics_v2');
         if (savedMetrics) setAmbiguityMetrics(JSON.parse(savedMetrics));
-        const savedSubs = localStorage.getItem('veribrand_submissions_v2');
-        if (savedSubs) setSubmissions(JSON.parse(savedSubs));
-      } catch {}
-      setIsHydrated(true);
-
-      // Async fetch server-persisted submissions from SQLite
-      fetch('/api/submissions')
-        .then((res) => res.json())
-        .then((data) => {
-          if (data.ok && Array.isArray(data.submissions) && data.submissions.length > 0) {
-            setSubmissions(data.submissions);
-          }
-        })
-        .catch(() => {});
-    }, 0);
-
-    return () => clearTimeout(timer);
+      } catch { /* Ignore corrupt local preferences. */ }
+      try {
+        const response = await fetch('/api/auth/me');
+        if (!response.ok) { if (!cancelled) setCurrentUser(null); return; }
+        const data = await response.json();
+        if (!cancelled && data.authenticated && data.user) {
+          setCurrentUser(data.user);
+          const list = await fetch('/api/submissions');
+          const payload = await list.json();
+          if (!list.ok) throw new Error(payload.error || 'Unable to load submissions.');
+          if (!cancelled) setSubmissions(Array.isArray(payload.submissions) ? payload.submissions : []);
+        }
+      } catch (error) {
+        if (!cancelled) setAuthError(error instanceof Error ? error.message : 'Unable to restore session.');
+      } finally {
+        if (!cancelled) setIsHydrated(true);
+      }
+    };
+    restore();
+    return () => { cancelled = true; };
   }, []);
 
-  const handleSwitchUser = async (email: string) => {
-    try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password: 'Password123!' }),
-      });
-      const data = await res.json();
-      if (data.ok && data.user) {
-        setCurrentUser(data.user);
-      }
-    } catch {
-      // Offline fallback
-      if (email.includes('creator')) {
-        setCurrentUser({
-          id: 'USR-CREATOR-01',
-          email: 'creator@inkloom.ai',
-          name: 'Elena Rostova (Senior Copywriter)',
-          role: 'creator',
-          createdAt: new Date().toISOString(),
-        });
-      } else if (email.includes('admin')) {
-        setCurrentUser({
-          id: 'USR-ADMIN-01',
-          email: 'admin@inkloom.ai',
-          name: 'Brand Governance Admin',
-          role: 'admin',
-          createdAt: new Date().toISOString(),
-        });
-      } else {
-        setCurrentUser({
-          id: 'USR-REVIEWER-01',
-          email: 'reviewer@inkloom.ai',
-          name: 'Marcus Vance (Brand Reviewer)',
-          role: 'reviewer',
-          createdAt: new Date().toISOString(),
-        });
-      }
-    }
+  const handleAuthenticated = async (user: User) => {
+    setCurrentUser(user);
+    setAuthError(null);
+    const response = await fetch('/api/submissions');
+    const data = await response.json();
+    if (!response.ok) { setAuthError(data.error || 'Unable to load submissions.'); return; }
+    setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
   };
 
-  // Sync state changes to localStorage after hydration
-  useEffect(() => {
-    if (!isHydrated) return;
-    try {
-      localStorage.setItem('veribrand_submissions_v2', JSON.stringify(submissions));
-    } catch {}
-  }, [submissions, isHydrated]);
+  const handleLogout = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    setCurrentUser(null);
+    setSubmissions([]);
+    setActiveTab('editor');
+  };
 
   useEffect(() => {
     if (!isHydrated) return;
@@ -253,329 +151,131 @@ export default function Home() {
     setRewriteNotice('This rewrite is stale because the draft changed after the finding was created. Run a fresh audit and select the finding again.');
   };
 
-  // Creator Appeal & Override with Rationale
+  // Local drafting note only. This does not change a verdict or create an appeal decision.
   const handleCreatorOverride = (findingId: string, rationale: string) => {
-    const finding = auditResult.findings.find((f) => f.id === findingId);
-    if (finding) {
-      finding.override = {
-        overridden: true,
-        rationale,
-        timestamp: new Date().toISOString(),
-      };
+    const finding = auditResult.findings.find(item => item.id === findingId);
+    if (finding) finding.override = { overridden: true, rationale, timestamp: new Date().toISOString() };
+  };
 
-      // Attribute the appeal to the stable rule identity; do not count it as a new scan trigger.
-      const targetRuleId = getHeatmapRuleId(finding);
-      if (targetRuleId) {
-        setAmbiguityMetrics((prev) => prev.map((metric) => {
-          if (metric.ruleId !== targetRuleId) return metric;
-          const overrideCount = metric.overrideCount + 1;
-          const liveTriggers = auditResult.findings.filter((item) =>
-            getHeatmapRuleId(item) === targetRuleId
-          ).length;
-          const denominator = metric.totalTriggers + liveTriggers;
-          const overrideRatePct = denominator > 0
-            ? Math.round((overrideCount / denominator) * 1000) / 10
-            : 0;
-          return {
-            ...metric,
-            overrideCount,
-            overrideRatePct,
-            confusionScore: Math.min(100, Math.round(metric.confusionScore + 3)),
-            status: overrideRatePct > 40 ? 'ambiguous' : 'monitor',
-          };
-        }));
-      }
+  const refreshSubmissions = async () => {
+    const response = await fetch('/api/submissions');
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Unable to refresh submissions.');
+    setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
+  };
+
+  // Persist first, then reflect the authoritative server-generated submission.
+  const handleSubmitForReview = async (title: string) => {
+    try {
+      const response = await fetch('/api/submissions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, channel, text: content }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.submission?.id) throw new Error(data.error || 'Submission was not saved.');
+      setSubmissions((prev) => [data.submission, ...prev.filter((item) => item.id !== data.submission.id)]);
+      setActiveTab('reviewer');
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Submission failed.');
     }
   };
 
-  // Submit Draft to Reviewer Queue
-  const handleSubmitForReview = (title: string, creatorName: string) => {
-    const subId = `SUB-${Date.now().toString(36).toUpperCase()}`;
-    const now = new Date().toISOString();
-    const newSubmission: ReviewSubmission = {
-      id: subId,
-      title,
-      channel,
-      creatorName,
-      submittedAt: now,
-      currentRevisionId: 'REV-1',
-      status: 'pending_review',
-      originalText: content,
-      currentText: content,
-      auditResult: { ...auditResult },
-      revisionHistory: [{
-        revisionId: 'REV-1',
-        version: 1,
-        text: content,
-        auditResult: { ...auditResult },
-        submittedAt: now,
-        submittedBy: creatorName,
-      }],
-      appealDecisions: [],
-      comments: [
-        {
-          id: `COM-${Date.now()}`,
-          author: creatorName,
-          role: 'Creator',
-          text: `Submitted draft for review across ${channel.replace('_', ' ')} with compliance score of ${auditResult.complianceScore}/100.`,
-          timestamp: now,
-        },
-      ],
-    };
-
-    setSubmissions((prev) => [newSubmission, ...prev]);
-    setActiveTab('reviewer');
-
-    // Async persist to SQLite backend
-    fetch('/api/submissions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title,
-        channel,
-        originalText: content,
-        creatorName,
-      }),
-    }).catch(() => {});
-  };
-
-  // Brand Reviewer Approval with SHA-256 Hash
-  const handleApproveSubmission = (
+  const handleApproveSubmission = async (
     submissionId: string,
-    sha256Hash: string,
-    reviewerName: string,
+    _sha256Hash: string,
+    _reviewerName: string,
     approvalMode: 'standard' | 'exception',
     exceptionRationale?: string
   ) => {
-    setSubmissions((prev) =>
-      prev.map((sub) => {
-        if (sub.id === submissionId) {
-          const currentRevId = sub.currentRevisionId || 'REV-1';
-          const acceptedAppealIds = new Set(
-            (sub.appealDecisions ?? [])
-              .filter((decision) => decision.decision === 'accepted' && decision.revisionId === currentRevId)
-              .map((decision) => decision.findingId)
-          );
-          const hasCriticalUnresolved = sub.auditResult.findings.some(
-            (finding) => finding.severity === 'critical' &&
-              finding.verdict !== 'VERIFIED' &&
-              !acceptedAppealIds.has(finding.id)
-          );
-          if (hasCriticalUnresolved && (approvalMode !== 'exception' || !exceptionRationale?.trim())) return sub;
-          if (!hasCriticalUnresolved && approvalMode === 'exception' && !exceptionRationale?.trim()) return sub;
-
-          // Async persist to SQLite backend
-          fetch(`/api/submissions/${submissionId}/review`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'approve',
-              approvalMode,
-              reviewerName,
-              exceptionRationale,
-            }),
-          }).catch(() => {});
-
-          return {
-            ...sub,
-            status: 'approved',
-            approvalMode,
-            exceptionRationale: approvalMode === 'exception' ? exceptionRationale?.trim() : undefined,
-            sha256Hash,
-            signedOffAt: new Date().toISOString(),
-            signedOffBy: reviewerName,
-            comments: [
-              ...sub.comments,
-              {
-                id: `COM-${Date.now()}`,
-                author: reviewerName,
-                role: 'Brand Reviewer',
-                text: approvalMode === 'exception' ? 'Exception approval: ' + (exceptionRationale ?? '') + '. SHA-256: ' + sha256Hash.slice(0, 20) + '...' : 'Approved content and committed SHA-256 integrity hash: ' + sha256Hash.slice(0, 20) + '...',
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          };
-        }
-        return sub;
-      })
-    );
+    try {
+      const response = await fetch('/api/submissions/' + encodeURIComponent(submissionId) + '/review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve', approvalMode, exceptionRationale }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Approval failed.');
+      await refreshSubmissions();
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Approval failed.');
+    }
   };
 
-  // Creator resubmission creates a new revision and a fresh audit.
-  const handleResubmit = (submissionId: string, revisedText: string, creatorName: string) => {
-    const current = submissions.find((item) => item.id === submissionId);
-    if (!current || current.status !== 'changes_requested' || !revisedText.trim()) return;
-    const revisedAudit = auditContent(revisedText, current.channel);
-    const submittedAt = new Date().toISOString();
-
-    setSubmissions((prev) => prev.map((sub) => {
-      if (sub.id !== submissionId || sub.status !== 'changes_requested') return sub;
-      const history = sub.revisionHistory ?? [{
-        revisionId: 'REV-1',
-        version: 1, text: sub.originalText, auditResult: sub.auditResult,
-        submittedAt: sub.submittedAt, submittedBy: sub.creatorName,
-      }];
-      const nextVersion = history.length + 1;
-      const nextRevId = `REV-${nextVersion}`;
-
-      // Async persist to SQLite backend
-      fetch(`/api/submissions/${submissionId}/resubmit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          revisedText,
-          creatorName,
-        }),
-      }).catch(() => {});
-
-      return {
-        ...sub,
-        currentRevisionId: nextRevId,
-        status: 'pending_review',
-        currentText: revisedText,
-        auditResult: revisedAudit,
-        submittedAt,
-        sha256Hash: undefined,
-        signedOffAt: undefined,
-        signedOffBy: undefined,
-        approvalMode: undefined,
-        exceptionRationale: undefined,
-        revisionHistory: [...history, {
-          revisionId: nextRevId,
-          version: nextVersion,
-          text: revisedText,
-          auditResult: revisedAudit,
-          submittedAt,
-          submittedBy: creatorName,
-        }],
-        comments: [...sub.comments, {
-          id: 'COM-' + Date.now(),
-          author: creatorName,
-          role: 'Creator',
-          text: 'Resubmitted revision ' + nextVersion + ' (' + nextRevId + ') for review. New compliance score: ' + revisedAudit.complianceScore + '/100.',
-          timestamp: submittedAt,
-        }],
-      };
-    }));
+  const handleResubmit = async (submissionId: string, revisedText: string) => {
+    try {
+      const response = await fetch('/api/submissions/' + encodeURIComponent(submissionId) + '/resubmit', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revisedText }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Resubmission failed.');
+      await refreshSubmissions();
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Resubmission failed.');
+    }
   };
 
-  const handleDecideAppeal = (
+  const handleDecideAppeal = async (
     submissionId: string,
     findingId: string,
     decision: 'accepted' | 'rejected',
     rationale: string,
-    reviewerName: string
+    _reviewerName: string
   ) => {
-    if (!rationale.trim()) return;
-    const decidedAt = new Date().toISOString();
-    setSubmissions((prev) => prev.map((sub) => {
-      if (sub.id !== submissionId) return sub;
-      const currentRevId = sub.currentRevisionId || 'REV-1';
-      const decisions = sub.appealDecisions ?? [];
-      if (decisions.some((item) => item.findingId === findingId && item.revisionId === currentRevId)) return sub;
-
-      // Async persist to SQLite backend
-      fetch(`/api/submissions/${submissionId}/appeal`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          revisionId: currentRevId,
-          findingId,
-          decision,
-          rationale: rationale.trim(),
-          reviewerName,
-        }),
-      }).catch(() => {});
-
-      return {
-        ...sub,
-        appealDecisions: [
-          ...decisions,
-          {
-            revisionId: currentRevId,
-            findingId,
-            decision,
-            rationale: rationale.trim(),
-            reviewerName,
-            decidedAt,
-          },
-        ],
-        comments: [...sub.comments, {
-          id: 'COM-' + Date.now(),
-          author: reviewerName,
-          role: 'Brand Reviewer',
-          text: 'Creator appeal ' + decision + ' for ' + currentRevId + ' (finding ' + findingId + '): ' + rationale.trim(),
-          timestamp: decidedAt,
-        }],
-      };
-    }));
+    try {
+      void _reviewerName;
+      const current = submissions.find((item) => item.id === submissionId);
+      if (!current) throw new Error('Submission no longer exists.');
+      const response = await fetch('/api/submissions/' + encodeURIComponent(submissionId) + '/appeal', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ revisionId: current.currentRevisionId, findingId, decision, rationale }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Appeal decision failed.');
+      await refreshSubmissions();
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Appeal decision failed.');
+    }
   };
 
-  // Brand Reviewer Request Changes
-  const handleRequestChanges = (submissionId: string, commentText: string) => {
-    // Async persist to SQLite backend
-    fetch(`/api/submissions/${submissionId}/review`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        action: 'request_changes',
-        commentText,
-      }),
-    }).catch(() => {});
-
-    setSubmissions((prev) =>
-      prev.map((sub) => {
-        if (sub.id === submissionId) {
-          return {
-            ...sub,
-            status: 'changes_requested',
-            comments: [
-              ...sub.comments,
-              {
-                id: `COM-${Date.now()}`,
-                author: currentUser?.name || 'Marcus Vance (Brand Reviewer)',
-                role: 'Brand Reviewer',
-                text: `Changes Requested: ${commentText}`,
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          };
-        }
-        return sub;
-      })
-    );
+  const handleRequestChanges = async (submissionId: string, commentText: string) => {
+    try {
+      const response = await fetch('/api/submissions/' + encodeURIComponent(submissionId) + '/review', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'request_changes', commentText }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to request changes.');
+      await refreshSubmissions();
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Unable to request changes.');
+    }
   };
 
-  // Add Comment to Review Thread
-  const handleAddComment = (
+  const handleAddComment = async (
     submissionId: string,
     commentText: string,
-    author: string,
-    role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel'
+    _author: string,
+    _role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel'
   ) => {
-    setSubmissions((prev) =>
-      prev.map((sub) => {
-        if (sub.id === submissionId) {
-          return {
-            ...sub,
-            comments: [
-              ...sub.comments,
-              {
-                id: `COM-${Date.now()}`,
-                author,
-                role,
-                text: commentText,
-                timestamp: new Date().toISOString(),
-              },
-            ],
-          };
-        }
-        return sub;
-      })
-    );
+    try {
+      void _author;
+      void _role;
+      const response = await fetch('/api/submissions/' + encodeURIComponent(submissionId) + '/comments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: commentText }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to save comment.');
+      await refreshSubmissions();
+    } catch (error) {
+      setRewriteNotice(error instanceof Error ? error.message : 'Unable to save comment.');
+    }
   };
 
   const pendingCount = submissions.filter((s) => s.status === 'pending_review').length;
+
+  if (!isHydrated) return <main className="min-h-screen grid place-items-center bg-slate-50 text-slate-600">Loading VeriBrand AI…</main>;
+  if (!currentUser) return <LoginScreen onAuthenticated={handleAuthenticated} />;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
@@ -586,11 +286,12 @@ export default function Home() {
         pendingReviewsCount={pendingCount}
         onSelectPreset={handleSelectPreset}
         currentUser={currentUser}
-        onSwitchUser={handleSwitchUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Content Area */}
       <main className="flex-1 pb-16">
+        {authError && <div role="alert" className="mx-auto mt-4 max-w-7xl rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">{authError}</div>}
         {activeTab === 'editor' && (
           <EditorView
             content={content}
@@ -621,7 +322,7 @@ export default function Home() {
           <AmbiguityHeatmapView metrics={displayedAmbiguityMetrics} />
         )}
 
-        {activeTab === 'vault' && <BrandVaultModal />}
+        {activeTab === 'vault' && <><BrandVaultModal />{currentUser.role === 'admin' && <AdminUsersPanel />}</>}
       </main>
 
       {/* Global Footer with Hackathon Credentials & Tech Stack Details */}
@@ -629,19 +330,19 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="font-semibold text-slate-700">
-              VeriBrand AI • Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
+              VeriBrand AI | Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              CodeNova India Hackathon 2026 • Problem Statement by Inkloom AI • Round 2 Build
+              CodeNova India Hackathon 2026 | Problem Statement by Inkloom AI | Round 2 Build
             </p>
           </div>
 
           <div className="flex items-center space-x-4 text-[11px]">
             <span>Team: <strong className="text-slate-800">Team Deccans</strong></span>
-            <span>•</span>
+            <span>|</span>
             <span>Solo Architect: <strong className="text-slate-800">Ronak Jain</strong></span>
-            <span>•</span>
-            <span>Status: <strong className="text-emerald-600 font-bold">Hackathon MVP · Demo Data</strong></span>
+            <span>|</span>
+            <span>Status: <strong className="text-emerald-600 font-bold">Hackathon MVP | Demo Data</strong></span>
           </div>
         </div>
       </footer>

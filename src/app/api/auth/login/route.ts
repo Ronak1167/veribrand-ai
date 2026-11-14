@@ -1,56 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'node:crypto';
 import { getUserByEmail, verifyPassword, createSession, logAuditEvent } from '@/lib/db/database';
 
+const attempts = new Map<string, { count: number; resetAt: number }>();
+const WINDOW_MS = 15 * 60 * 1000;
+const MAX_ATTEMPTS = 8;
+
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json();
-    const { email, password } = body || {};
-
-    if (!email || typeof email !== 'string' || !password || typeof password !== 'string') {
-      return NextResponse.json(
-        { error: 'Both "email" and "password" are required fields.' },
-        { status: 400 }
-      );
-    }
-
-    const userWithSecret = getUserByEmail(email.trim());
-    if (!userWithSecret) {
-      return NextResponse.json(
-        { error: 'Invalid email or password credentials.' },
-        { status: 401 }
-      );
-    }
-
-    const clientIp = req.headers.get('x-forwarded-for') || '127.0.0.1';
-    const valid = verifyPassword(password, userWithSecret.passwordHash);
-    if (!valid) {
-      logAuditEvent('LOGIN_FAILED', userWithSecret.id, userWithSecret.role, null, null, { email }, clientIp);
-      return NextResponse.json(
-        { error: 'Invalid email or password credentials.' },
-        { status: 401 }
-      );
-    }
-
-    const session = createSession(userWithSecret.id);
-    logAuditEvent('LOGIN_SUCCESS', userWithSecret.id, userWithSecret.role, null, null, { email }, clientIp);
-
-    const res = NextResponse.json({
-      user: session.user,
-      token: session.token,
-      expiresAt: session.expiresAt,
-    });
-
-    res.cookies.set('veribrand_session', session.token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      path: '/',
-      maxAge: 30 * 24 * 60 * 60,
-    });
-
-    return res;
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Server error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  const ip = (req.headers.get('x-real-ip') || req.headers.get('x-forwarded-for') || 'unknown').split(',')[0].trim();
+  const contentLength = Number(req.headers.get('content-length') || 0);
+  if (contentLength > 8192) return NextResponse.json({ error: 'Request body too large.' }, { status: 413 });
+  const body = await req.json().catch(() => null);
+  if (!body || typeof body.email !== 'string' || typeof body.password !== 'string' || body.email.length > 254 || body.password.length > 1024) return NextResponse.json({ error: 'Valid email and password are required.' }, { status: 400 });
+  for (const [attemptKey, value] of attempts) if (value.resetAt <= Date.now()) attempts.delete(attemptKey);
+  const key = crypto.createHash('sha256').update(body.email.trim().toLowerCase()).digest('hex');
+  const state = attempts.get(key);
+  if (state && state.resetAt > Date.now() && state.count >= MAX_ATTEMPTS) return NextResponse.json({ error: 'Too many login attempts. Try again in 15 minutes.' }, { status: 429 });
+  const user = getUserByEmail(body.email.trim());
+  const valid = !!user && verifyPassword(body.password, user.passwordHash);
+  if (!valid) {
+    const next = !state || state.resetAt <= Date.now() ? { count: 1, resetAt: Date.now() + WINDOW_MS } : { ...state, count: state.count + 1 };
+    attempts.set(key, next);
+    return NextResponse.json({ error: 'Invalid email or password.' }, { status: 401 });
   }
+  attempts.delete(key);
+  const session = createSession(user!.id);
+  logAuditEvent('LOGIN_SUCCESS', user!.id, user!.role, null, null, { method: 'password' }, ip);
+  const res = NextResponse.json({ ok: true, user: session.user, expiresAt: session.expiresAt });
+  res.cookies.set('veribrand_session', session.token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: 8 * 60 * 60 });
+  return res;
 }

@@ -2,6 +2,7 @@
 // Validates visual branding, hex colors, and WCAG 2.1 AA/AAA contrast ratios.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSessionFromRequest } from '@/lib/auth/session';
 
 function getLuminance(hexStr: string): number {
   const hex = hexStr.replace(/^#/, '');
@@ -47,6 +48,7 @@ const FORBIDDEN_OFF_BRAND_COLORS = [
 ];
 
 export async function POST(req: NextRequest) {
+  if (!getSessionFromRequest(req)) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   try {
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object') {
@@ -55,12 +57,14 @@ export async function POST(req: NextRequest) {
 
     const { colors, background = '#FFFFFF' } = body as { colors?: string[]; background?: string };
 
-    if (!Array.isArray(colors) || colors.length === 0) {
+    if (!Array.isArray(colors) || colors.length === 0 || colors.length > 50 || colors.some(c => typeof c !== 'string' || !/^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(c))) {
       return NextResponse.json(
         { ok: false, error: 'colors must be a non-empty array of hex color strings (e.g. ["#4F46E5", "#0F172A"])' },
         { status: 400 }
       );
     }
+
+    if (typeof background !== 'string' || !/^#?(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(background)) return NextResponse.json({ ok: false, error: 'background must be a valid 3- or 6-digit hex color.' }, { status: 400 });
 
     const results = colors.map((rawColor) => {
       const hex = rawColor.startsWith('#') ? rawColor : `#${rawColor}`;

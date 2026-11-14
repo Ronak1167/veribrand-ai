@@ -1,144 +1,155 @@
-# VeriBrand AI — Appeal Revision Security Test Suite
-# Empirically proves that appeals accepted on Revision 1 CANNOT authorize approval of Revision 2.
+"""Authenticated integration test for revision-bound appeal authorization.
 
-import sys
-import os
-import requests
+Set VERIBRAND_TEST_CREATOR_EMAIL/PASSWORD and VERIBRAND_TEST_REVIEWER_EMAIL/PASSWORD
+to existing test accounts before running. No demo credentials are embedded.
+"""
+import http.cookiejar
 import json
+import os
+import sys
+import urllib.error
+import urllib.request
 
 BASE_URL = os.environ.get("VERIBRAND_URL", "http://localhost:3000")
+CREATOR_EMAIL = os.environ.get("VERIBRAND_TEST_CREATOR_EMAIL")
+CREATOR_PASSWORD = os.environ.get("VERIBRAND_TEST_CREATOR_PASSWORD")
+REVIEWER_EMAIL = os.environ.get("VERIBRAND_TEST_REVIEWER_EMAIL")
+REVIEWER_PASSWORD = os.environ.get("VERIBRAND_TEST_REVIEWER_PASSWORD")
+
+
+class ApiClient:
+    def __init__(self):
+        self.cookies = http.cookiejar.CookieJar()
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(self.cookies))
+
+    def request(self, method, path, body=None):
+        headers = {}
+        data = None
+        if body is not None:
+            headers["Content-Type"] = "application/json"
+            data = json.dumps(body).encode("utf-8")
+        request = urllib.request.Request(BASE_URL + path, data=data, headers=headers, method=method)
+        try:
+            with self.opener.open(request, timeout=15) as response:
+                raw = response.read()
+                return response.status, json.loads(raw) if raw else {}
+        except urllib.error.HTTPError as error:
+            raw = error.read()
+            try:
+                payload = json.loads(raw) if raw else {}
+            except json.JSONDecodeError:
+                payload = {"raw": raw.decode("utf-8", errors="replace")}
+            return error.code, payload
+
+
+def login(email, password):
+    client = ApiClient()
+    status, data = client.request("POST", "/api/auth/login", {"email": email, "password": password})
+    assert status == 200, f"Login failed for {email}: {status} {data}"
+    assert "token" not in data, "Session token must not be returned in response JSON."
+    return client
+
 
 def run_tests():
-    print("=" * 65)
-    print("  VERIBRAND AI — APPEAL REVISION SCOPE SECURITY TEST")
-    print("=" * 65)
+    missing = [name for name, value in {
+        "VERIBRAND_TEST_CREATOR_EMAIL": CREATOR_EMAIL,
+        "VERIBRAND_TEST_CREATOR_PASSWORD": CREATOR_PASSWORD,
+        "VERIBRAND_TEST_REVIEWER_EMAIL": REVIEWER_EMAIL,
+        "VERIBRAND_TEST_REVIEWER_PASSWORD": REVIEWER_PASSWORD,
+    }.items() if not value]
+    if missing:
+        print("SKIP: configure test accounts first: " + ", ".join(missing))
+        return 2
 
-    session = requests.Session()
+    creator = login(CREATOR_EMAIL, CREATOR_PASSWORD)
+    reviewer = login(REVIEWER_EMAIL, REVIEWER_PASSWORD)
 
-    # Step 1: Login as Creator and create a submission with a critical violation
-    print("\n[Step 1] Creating Submission with SLA Contradiction (99.999% uptime)...")
-    res = session.post(f"{BASE_URL}/api/auth/login", json={
-        "email": "creator@inkloom.ai",
-        "password": "Password123!"
-    })
-    assert res.status_code == 200, f"Creator login failed: {res.text}"
-
-    create_res = session.post(f"{BASE_URL}/api/submissions", json={
-        "title": "Revision Security Test Press Release",
+    created_status, created_data = creator.request("POST", "/api/submissions", {
+        "title": "Revision-bound appeal integration test",
         "channel": "press_release",
-        "originalText": "Inkloom guarantees 99.999% uptime across all enterprise clusters.",
-        "creatorName": "Elena Rostova"
+        "text": "We guarantee 99.999% uptime.",
     })
-    assert create_res.status_code == 201, f"Create submission failed: {create_res.text}"
-    sub_data = create_res.json()["submission"]
-    sub_id = sub_data["id"]
-    current_rev = sub_data["currentRevisionId"]
-    assert "REV-1" in current_rev, f"Expected currentRevisionId to contain REV-1, got {current_rev}"
-    print(f"  -> Created Submission {sub_id} with Revision {current_rev}")
+    assert created_status == 201, created_data
+    sub = created_data["submission"]
+    sub_id = sub["id"]
+    rev1 = sub["currentRevisionId"]
+    assert rev1 and sub["creatorName"]
 
-    # Step 2: Login as Reviewer
-    print("\n[Step 2] Authenticating as Reviewer...")
-    login_rev = session.post(f"{BASE_URL}/api/auth/login", json={
-        "email": "reviewer@inkloom.ai",
-        "password": "Password123!"
-    })
-    assert login_rev.status_code == 200, f"Reviewer login failed: {login_rev.text}"
-
-    # Step 3: Attempting standard approval on REV-1 without appeal must fail (409)
-    print("\n[Step 3] Attempting standard approval on REV-1 without appeal...")
-    app_fail = session.post(f"{BASE_URL}/api/submissions/{sub_id}/review", json={
-        "action": "approve",
-        "approvalMode": "standard",
-        "reviewerName": "Marcus Vance"
-    })
-    assert app_fail.status_code in [400, 409], f"Expected 400 or 409, got {app_fail.status_code}: {app_fail.text}"
-    print("  -> PASSED: Unresolved critical finding blocked un-appealed approval.")
-
-    # Step 4: Adjudicate appeal accepting all critical findings on REV-1
-    print("\n[Step 4] Accepting appeals for critical findings on REV-1...")
-    critical_findings = [f for f in sub_data["auditResult"]["findings"] if f["severity"] == "critical"]
-    assert len(critical_findings) > 0, "Expected at least 1 critical finding"
-
-    for f in critical_findings:
-        appeal_res = session.post(f"{BASE_URL}/api/submissions/{sub_id}/appeal", json={
-            "revisionId": current_rev,
-            "findingId": f["id"],
-            "decision": "accepted",
-            "rationale": "Testing approval gate on REV-1",
-            "reviewerName": "Marcus Vance"
-        })
-        assert appeal_res.status_code in [200, 201], f"Appeal submission failed: {appeal_res.text}"
-    print(f"  -> PASSED: Appeals successfully accepted for {current_rev}.")
-
-    # Step 4b: Standard approval on REV-1 must now succeed
-    print("\n[Step 4b] Testing standard approval on fully-appealed REV-1...")
-    app_rev1 = session.post(f"{BASE_URL}/api/submissions/{sub_id}/review", json={
-        "action": "approve",
-        "approvalMode": "standard",
-        "reviewerName": "Marcus Vance"
-    })
-    assert app_rev1.status_code == 200, f"Expected 200 for appealed approval on REV-1, got {app_rev1.status_code}: {app_rev1.text}"
-    print("  -> PASSED: REV-1 successfully approved with all accepted appeals.")
-
-    # Step 5: Now request changes to move submission to 'changes_requested' so creator can revise
-    print("\n[Step 5] Requesting changes on submission...")
-    req_changes = session.post(f"{BASE_URL}/api/submissions/{sub_id}/review", json={
+    denied_status, denied_data = creator.request("POST", f"/api/submissions/{sub_id}/review", {
         "action": "request_changes",
-        "commentText": "Please adjust wording for general release."
+        "commentText": "A creator must not perform reviewer actions.",
     })
-    assert req_changes.status_code == 200, f"Request changes failed: {req_changes.text}"
+    assert denied_status == 403, f"Creator reviewer action was not denied: {denied_status} {denied_data}"
 
-    # Step 6: Creator resubmits Revision 2 STILL containing 99.999% uptime
-    print("\n[Step 6] Creator resubmits revision with persistent critical finding...")
-    resubmit_res = session.post(f"{BASE_URL}/api/submissions/{sub_id}/resubmit", json={
-        "revisedText": "Inkloom proudly guarantees 99.999% uptime in Revision 2.",
-        "creatorName": "Elena Rostova"
+    blocked_status, blocked_data = reviewer.request("POST", f"/api/submissions/{sub_id}/review", {
+        "action": "approve", "approvalMode": "standard",
     })
-    assert resubmit_res.status_code == 200, f"Resubmission failed: {resubmit_res.text}"
-    updated_sub = resubmit_res.json()
-    new_rev = updated_sub["currentRevisionId"]
-    assert "REV-2" in new_rev, f"Expected currentRevisionId containing REV-2, got {new_rev}"
-    print(f"  -> Successfully resubmitted as {new_rev}")
+    assert blocked_status == 409, f"Critical finding was not blocked: {blocked_status} {blocked_data}"
 
-    # Step 7: CRITICAL SECURITY CHECK:
-    # Attempting to approve Revision 2 using standard mode MUST FAIL because the appeal belonged to REV-1!
-    print("\n[Step 7] SECURITY GATE: Attempting standard approval on REV-2...")
-    rev2_app = session.post(f"{BASE_URL}/api/submissions/{sub_id}/review", json={
-        "action": "approve",
-        "approvalMode": "standard",
-        "reviewerName": "Marcus Vance"
+    critical = [f for f in sub["auditResult"]["findings"] if f.get("severity") == "critical" and f.get("verdict") != "VERIFIED"]
+    assert critical, "Expected a critical finding for the test claim."
+    finding = critical[0]
+
+    appeal_status, appeal_data = reviewer.request("POST", f"/api/submissions/{sub_id}/appeal", {
+        "revisionId": rev1,
+        "findingId": finding["id"],
+        "decision": "accepted",
+        "rationale": "Accepted for revision one only in this automated security test.",
     })
-    assert rev2_app.status_code in [400, 409], f"SECURITY FAILURE! REV-2 was approved using REV-1's appeal! Status: {rev2_app.status_code}, Body: {rev2_app.text}"
-    err_msg = rev2_app.json().get("error", "")
-    assert "critical unresolved findings" in err_msg.lower(), f"Unexpected error message: {err_msg}"
-    print("  -> PASSED: Server strictly rejected REV-2 approval despite REV-1 accepted appeal!")
+    assert appeal_status == 201, f"Appeal decision failed: {appeal_status} {appeal_data}"
 
-    # Step 8: Resubmit clean Revision 3 (with compliant 99.9% uptime and proper Inkloom AI trademark)
-    print("\n[Step 8] Creator resubmits compliant Revision 3 (99.9% uptime)...")
-    resubmit_clean = session.post(f"{BASE_URL}/api/submissions/{sub_id}/resubmit", json={
-        "revisedText": "Inkloom AI delivers 99.9% uptime backed by SOC 2 Type II compliance.",
-        "creatorName": "Elena Rostova"
+    change_status, change_data = reviewer.request("POST", f"/api/submissions/{sub_id}/review", {
+        "action": "request_changes",
+        "commentText": "Revise the uptime assertion and provide an approved source.",
     })
-    assert resubmit_clean.status_code == 200, f"Resubmit clean failed: {resubmit_clean.text}"
-    clean_sub = resubmit_clean.json()
-    assert "REV-3" in clean_sub["currentRevisionId"]
+    assert change_status == 200, change_data
 
-    # Step 9: Standard approval on clean Revision 3 MUST SUCCEED
-    print("\n[Step 9] Approving compliant Revision 3...")
-    approve_clean = session.post(f"{BASE_URL}/api/submissions/{sub_id}/review", json={
-        "action": "approve",
-        "approvalMode": "standard",
-        "reviewerName": "Marcus Vance"
+    revision2_status, revision2_data = creator.request("POST", f"/api/submissions/{sub_id}/resubmit", {
+        "revisedText": "We guarantee 99.98% uptime.",
     })
-    assert approve_clean.status_code == 200, f"Expected 200 for clean approval, got {approve_clean.status_code}: {approve_clean.text}"
-    final_sub = approve_clean.json()
-    assert final_sub["status"] == "approved"
-    assert final_sub["sha256Hash"] is not None and len(final_sub["sha256Hash"]) == 64
-    print(f"  -> PASSED: Revision 3 successfully approved with SHA-256 hash: {final_sub['sha256Hash'][:24]}...")
+    assert revision2_status == 200, revision2_data
+    sub2 = revision2_data["submission"]
+    rev2 = sub2["currentRevisionId"]
+    assert rev2 != rev1 and sub2["status"] == "pending_review"
 
-    print("\n" + "=" * 65)
-    print("  ALL APPEAL REVISION SECURITY TESTS PASSED (100%)")
-    print("=" * 65)
+    stale_status, stale_data = reviewer.request("POST", f"/api/submissions/{sub_id}/review", {
+        "action": "approve", "approvalMode": "standard",
+    })
+    assert stale_status == 409, f"Revision 2 inherited revision 1 appeal: {stale_status} {stale_data}"
+
+    requested_status, requested_data = reviewer.request("POST", f"/api/submissions/{sub_id}/review", {
+        "action": "request_changes",
+        "commentText": "Use the currently verified SLA statement.",
+    })
+    assert requested_status == 200, requested_data
+
+    revision3_status, revision3_data = creator.request("POST", f"/api/submissions/{sub_id}/resubmit", {
+        "revisedText": "Inkloom AI provides 99.9% uptime.",
+    })
+    assert revision3_status == 200, revision3_data
+    sub3 = revision3_data["submission"]
+    assert sub3["currentRevisionId"] != rev2
+
+    approved_status, approved_data = reviewer.request("POST", f"/api/submissions/{sub_id}/review", {
+        "action": "approve", "approvalMode": "standard",
+    })
+    assert approved_status == 200, f"Clean current revision was not approved: {approved_status} {approved_data}"
+    assert approved_data["submission"]["status"] == "approved"
+
+    detail_status, detail = reviewer.request("GET", f"/api/submissions/{sub_id}")
+    assert detail_status == 200, detail
+    assert detail.get("integrityVerified") is True, "Server-side approval hash verification failed."
+
+    own_status, own_detail = creator.request("GET", f"/api/submissions/{sub_id}")
+    assert own_status == 200, own_detail
+
+    print("PASS: creator/reviewer role separation.")
+    print("PASS: canonical server-generated submission ID and database persistence.")
+    print("PASS: revision-one accepted appeal cannot authorize revision two.")
+    print("PASS: new revision requires fresh evaluation and can be approved when clean.")
+    print("PASS: server-side approval hash verification returns integrityVerified=true.")
+    return 0
+
 
 if __name__ == "__main__":
-    run_tests()
+    sys.exit(run_tests())

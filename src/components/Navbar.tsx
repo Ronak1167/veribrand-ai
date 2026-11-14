@@ -10,7 +10,7 @@ interface NavbarProps {
   pendingReviewsCount: number;
   onSelectPreset: (presetId: string) => void;
   currentUser?: User | null;
-  onSwitchUser?: (email: string) => void;
+  onLogout?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,7 +19,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   pendingReviewsCount,
   onSelectPreset,
   currentUser,
-  onSwitchUser,
+  onLogout,
 }) => {
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-900 shadow-xs">
@@ -123,27 +123,13 @@ export const Navbar: React.FC<NavbarProps> = ({
               <option value="draft-clean-compliant">Scenario 3: 100% Compliant (Green Pass)</option>
             </select>
 
-            {/* Authenticated Persona Switcher */}
-            <div className="flex items-center space-x-1.5 pl-1 border-l border-slate-200">
-              <div className="hidden sm:flex items-center space-x-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-200">
+              <div className="hidden sm:flex items-center gap-1.5 bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
-                <span className="text-[11px] font-semibold text-slate-800">{currentUser?.name?.split(' ')[0] || 'User'}</span>
-                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700">
-                  {currentUser?.role || 'reviewer'}
-                </span>
+                <span className="text-[11px] font-semibold text-slate-800">{currentUser?.name?.split(' ')[0]}</span>
+                <span className="px-1.5 py-0.2 rounded text-[9px] font-bold uppercase bg-indigo-100 text-indigo-700">{currentUser?.role}</span>
               </div>
-              {onSwitchUser && (
-                <select
-                  value={currentUser?.email || 'reviewer@inkloom.ai'}
-                  onChange={(e) => onSwitchUser(e.target.value)}
-                  aria-label="Switch User Persona"
-                  className="bg-white text-slate-700 text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 shadow-xs font-medium"
-                >
-                  <option value="creator@inkloom.ai">Elena (Creator)</option>
-                  <option value="reviewer@inkloom.ai">Marcus (Reviewer)</option>
-                  <option value="admin@inkloom.ai">Admin (Governance)</option>
-                </select>
-              )}
+              <button type="button" onClick={onLogout} className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100" aria-label="Sign out">Sign out</button>
             </div>
           </div>
         </div>

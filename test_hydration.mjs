@@ -1,116 +1,56 @@
-// VeriBrand AI — Browser Hydration Console Verification Test (Node.js + Playwright)
+// VeriBrand AI — Unauthenticated first-visit and responsive login smoke test.
 import { chromium } from 'playwright';
 
-async function run() {
-  console.log('======================================================================');
-  console.log('  VERIBRAND AI — LIVE BROWSER HYDRATION TEST (PLAYWRIGHT)');
-  console.log('======================================================================');
-
-  // Multi-engine launch fallback (Edge -> Chrome -> default Chromium)
-  let browser;
-  let browserTypeUsed = 'default Chromium';
-  try {
-    browser = await chromium.launch({ channel: 'msedge', headless: true });
-    browserTypeUsed = 'Microsoft Edge (channel: msedge)';
-  } catch {
-    try {
-      browser = await chromium.launch({ channel: 'chrome', headless: true });
-      browserTypeUsed = 'Google Chrome (channel: chrome)';
-    } catch {
-      browser = await chromium.launch({ headless: true });
-      browserTypeUsed = 'Playwright Headless Chromium';
-    }
+const browser = await chromium.launch({ channel: 'msedge', headless: true });
+const context = await browser.newContext();
+const page = await context.newPage({ viewport: { width: 1440, height: 900 } });
+const pageErrors = [];
+const unexpectedConsoleErrors = [];
+const expectedUnauthorized = [];
+page.on('pageerror', error => pageErrors.push(error.message));
+page.on('console', message => {
+  if (message.type() === 'error') {
+    const text = message.text();
+    if (/status of 401 \(Unauthorized\)/i.test(text)) expectedUnauthorized.push(text);
+    else unexpectedConsoleErrors.push(text);
   }
-  console.log(`Launched browser engine: ${browserTypeUsed}`);
-
-  const context = await browser.newContext();
-  const page = await context.newPage();
-
-  const consoleMessages = [];
-  page.on('console', (msg) => {
-    consoleMessages.push({
-      type: msg.type(),
-      text: msg.text(),
-    });
-  });
-
-  const pageErrors = [];
-  page.on('pageerror', (err) => {
-    pageErrors.push(err.message);
-  });
-
-  // Scenario 1: Clean First Visit (Empty Storage)
-  console.log('\n[Scenario 1] Navigating to http://localhost:3000 on fresh first visit...');
-  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
-  await page.waitForTimeout(500);
-
-  // Scenario 2: Tab Switching Navigation (Verify All 4 Tabs Render Cleanly)
-  console.log('[Scenario 2] Testing tab switches (Reviewer, Heatmap, Brand Vault, Editor)...');
-  const tabs = ['Reviewer Hub', 'Ambiguity Heatmap', 'Brand Vault', 'Draft Studio'];
-  for (const tabName of tabs) {
-    const tabBtn = page.getByRole('button', { name: new RegExp(tabName, 'i') }).first();
-    if (await tabBtn.isVisible().catch(() => false)) {
-      await tabBtn.click();
-      await page.waitForTimeout(250);
-    }
-  }
-
-  // Scenario 3: Pre-seeded dirty localStorage Re-Hydration
-  console.log('[Scenario 3] Testing dirty localStorage re-hydration...');
-  const seedContent = 'Pre-existing draft loaded from prior session.';
-  await page.evaluate((content) => {
-    try {
-      localStorage.setItem('veribrand_editor_content_v2', content);
-      localStorage.setItem('veribrand_submissions_v2', JSON.stringify([]));
-    } catch {}
-  }, seedContent);
-  await page.reload({ waitUntil: 'networkidle' });
-  await page.waitForTimeout(500);
-
-  // Scenario 4: Mobile Viewport Navigation (390 x 844)
-  console.log('[Scenario 4] Testing mobile viewport (390 x 844) navigation sub-bar...');
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.waitForTimeout(300);
-
-  const mobileNav = page.getByRole('navigation', { name: /mobile navigation/i });
-  if (await mobileNav.isVisible().catch(() => false)) {
-    const mobileButtons = ['Studio', 'Queue', 'Heatmap', 'Vault'];
-    for (const btnName of mobileButtons) {
-      const btn = mobileNav.getByRole('button', { name: new RegExp(btnName, 'i') }).first();
-      if (await btn.isVisible().catch(() => false)) {
-        await btn.click();
-        await page.waitForTimeout(200);
-      }
-    }
-    console.log('-> Mobile navigation sub-bar buttons tested successfully at 390x844!');
-  }
-
-  const hydrationErrors = consoleMessages.filter(
-    (m) =>
-      m.text.toLowerCase().includes('hydration') ||
-      m.text.toLowerCase().includes('did not match') ||
-      m.type === 'error'
-  );
-
-  console.log(`\nTotal Console Messages: ${consoleMessages.length}`);
-  for (const m of consoleMessages) {
-    console.log(`  [${m.type.toUpperCase()}] ${m.text}`);
-  }
-
-  if (pageErrors.length > 0 || hydrationErrors.length > 0) {
-    console.error(`\nFAILED: Found ${hydrationErrors.length} hydration errors and ${pageErrors.length} page errors.`);
-    for (const e of pageErrors) console.error(`  PageError: ${e}`);
-    for (const e of hydrationErrors) console.error(`  HydrationError: ${e.text}`);
-    await browser.close();
-    process.exit(1);
-  }
-
-  console.log('\n-> PASS: Zero hydration errors, zero page errors, and zero console errors detected across all scenarios!');
-  await browser.close();
-  console.log('======================================================================');
-}
-
-run().catch((err) => {
-  console.error(err);
-  process.exit(1);
 });
+
+try {
+  await page.goto('http://localhost:3000', { waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: /initial administrator setup|sign in/i }).waitFor();
+  if (await page.getByRole('textbox', { name: 'Content Draft Editor' }).count()) {
+    throw new Error('Unauthenticated visitor can see the private editor.');
+  }
+  if (!(await page.getByLabel(/bootstrap token/i).isVisible().catch(() => false)) &&
+      !(await page.getByLabel(/email/i).isVisible().catch(() => false))) {
+    throw new Error('Expected authentication form is not visible.');
+  }
+
+  // Browser-local fake submissions must never restore authoritative server records.
+  await page.evaluate(() => {
+    localStorage.setItem('veribrand_submissions_v2', JSON.stringify([{ id: 'FAKE-LOCAL', title: 'Injected local record' }]));
+    localStorage.setItem('veribrand_editor_content_v2', 'Untrusted local draft');
+  });
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.getByRole('heading', { name: /initial administrator setup|sign in/i }).waitFor();
+  if (await page.getByText('Injected local record').count()) throw new Error('Local storage data leaked into the authoritative submission list.');
+
+  const protectedStatus = await page.evaluate(async () => (await fetch('/api/submissions')).status);
+  if (protectedStatus !== 401) throw new Error('Unauthenticated submissions endpoint returned ' + protectedStatus + ', expected 401.');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('heading', { name: /initial administrator setup|sign in/i }).waitFor();
+  const layout = await page.evaluate(() => ({ width: document.documentElement.clientWidth, scrollWidth: document.documentElement.scrollWidth }));
+  if (layout.scrollWidth > layout.width + 2) throw new Error('Login layout overflows mobile viewport: ' + JSON.stringify(layout));
+
+  if (pageErrors.length || unexpectedConsoleErrors.length) {
+    throw new Error('Page errors: ' + pageErrors.join(' | ') + '; console errors: ' + unexpectedConsoleErrors.join(' | '));
+  }
+  console.log('PASS: unauthenticated visitor sees setup/login only; protected submissions return 401.');
+  console.log('PASS: localStorage cannot inject authoritative submissions.');
+  console.log('PASS: 390x844 login layout has no horizontal overflow.');
+  console.log('PASS: zero page errors or unexpected console errors. Expected 401 responses: ' + expectedUnauthorized.length);
+} finally {
+  await browser.close();
+}

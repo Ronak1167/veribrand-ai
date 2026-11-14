@@ -35,8 +35,8 @@ class Finding(BaseModel):
     rewrites: RewriteOptions
 
 class AuditRequest(BaseModel):
-    text: str = Field(..., min_length=1, description="Content copy to audit")
-    channel: str = Field(default="enterprise_web", description="Target distribution channel")
+    text: str = Field(..., min_length=1, max_length=100_000, description="Content copy to audit")
+    channel: Literal["enterprise_web", "linkedin", "twitter", "press_release", "marketing_email"] = Field(default="enterprise_web", description="Target distribution channel")
 
 class AuditResponse(BaseModel):
     document_id: str

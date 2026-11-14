@@ -39,7 +39,7 @@ export interface EvidenceProvenance {
   sectionCitation: string;
   validityPeriod: string;
   lastAuditedDate: string;
-  status: 'active' | 'outdated';
+  status: 'active' | 'outdated' | 'pending' | 'unverified';
 }
 
 export interface RewriteAlternatives {
@@ -171,6 +171,7 @@ export interface ReviewSubmission {
   auditResult: AuditResult;
   comments: ReviewComment[];
   sha256Hash?: string;
+  integrityVerified?: boolean | null;
   signedOffAt?: string;
   signedOffBy?: string;
   approvalMode?: 'standard' | 'exception';

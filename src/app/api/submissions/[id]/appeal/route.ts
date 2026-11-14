@@ -1,60 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getSubmissionById, addAppealDecision } from '@/lib/db/database';
-import { getSessionFromRequest } from '@/lib/auth/session';
+import { getSessionFromRequest, requireRole } from '@/lib/auth/session';
+import { computeFindingFingerprint } from '@/lib/engine/crypto-audit';
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const session = getSessionFromRequest(req);
+  const access = requireRole(session?.user || null, ['reviewer']);
+  if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status });
   try {
     const { id } = await params;
     const sub = getSubmissionById(id);
-    if (!sub) {
-      return NextResponse.json({ error: `Submission '${id}' not found.` }, { status: 404 });
-    }
-
-    const session = getSessionFromRequest(req);
-    const reviewerId = session?.user?.id || 'USR-REVIEWER-01';
-    const defaultReviewerName = session?.user?.name || 'Marcus Vance (Brand Reviewer)';
-
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return NextResponse.json({ error: 'Malformed JSON payload.' }, { status: 400 });
-    }
-
-    const { findingId, findingFingerprint, decision, rationale, reviewerName } = body || {};
-
-    if (!findingId || typeof findingId !== 'string') {
-      return NextResponse.json({ error: 'Field "findingId" is required.' }, { status: 400 });
-    }
-    if (decision !== 'accepted' && decision !== 'rejected') {
-      return NextResponse.json({ error: 'Field "decision" must be "accepted" or "rejected".' }, { status: 400 });
-    }
-    if (!rationale || typeof rationale !== 'string' || rationale.trim().length === 0) {
-      return NextResponse.json({ error: 'Field "rationale" is required for appeal adjudication.' }, { status: 400 });
-    }
-
-    const currentRevisionId = sub.currentRevisionId || `${sub.id}-REV-1`;
-    const finalReviewerName = (reviewerName && typeof reviewerName === 'string' && reviewerName.trim().length > 0)
-      ? reviewerName.trim()
-      : defaultReviewerName;
-
-    const appeal = addAppealDecision({
-      submissionId: id,
-      revisionId: currentRevisionId,
-      findingId,
-      findingFingerprint: typeof findingFingerprint === 'string' && findingFingerprint ? findingFingerprint : findingId,
-      decision,
-      rationale: rationale.trim(),
-      reviewerId,
-      reviewerName: finalReviewerName,
-    });
-
-    return NextResponse.json(appeal, { status: 201 });
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Server error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (!sub) return NextResponse.json({ error: 'Submission not found.' }, { status: 404 });
+    if (sub.status !== 'pending_review') return NextResponse.json({ error: 'Appeals can only be decided on a pending current revision.' }, { status: 409 });
+    const body = await req.json().catch(() => null);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) return NextResponse.json({ error: 'Invalid request body.' }, { status: 400 });
+    const { findingId, decision, rationale, revisionId } = body;
+    const currentRevisionId = sub.currentRevisionId;
+    if (!currentRevisionId || revisionId !== currentRevisionId) return NextResponse.json({ error: 'Appeal refers to a stale revision.' }, { status: 409 });
+    if (typeof findingId !== 'string' || (decision !== 'accepted' && decision !== 'rejected')) return NextResponse.json({ error: 'Invalid finding or decision.' }, { status: 400 });
+    if (typeof rationale !== 'string' || rationale.trim().length < 10 || rationale.length > 5000) return NextResponse.json({ error: 'Rationale must contain 10–5000 characters.' }, { status: 400 });
+    const finding = sub.auditResult.findings.find(f => f.id === findingId);
+    if (!finding) return NextResponse.json({ error: 'Finding does not belong to the current revision.' }, { status: 409 });
+    const fingerprint = computeFindingFingerprint(finding);
+    const duplicate = (sub.appealDecisions || []).some(d => d.revisionId === currentRevisionId && d.findingId === findingId);
+    if (duplicate) return NextResponse.json({ error: 'This finding already has a decision for the current revision.' }, { status: 409 });
+    const appeal = addAppealDecision({ submissionId: id, revisionId: currentRevisionId, findingId, findingFingerprint: fingerprint, decision, rationale: rationale.trim(), reviewerId: session!.user.id, reviewerName: session!.user.name });
+    return NextResponse.json({ ok: true, appeal }, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: 'Unable to record appeal decision.' }, { status: 500 });
   }
 }

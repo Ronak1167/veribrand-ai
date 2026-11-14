@@ -30,7 +30,7 @@ interface EditorViewProps {
   rewriteNotice: string | null;
   onApplyRewrite: (finding: LintFinding, rewriteText: string) => void;
   onCreatorOverride: (findingId: string, rationale: string) => void;
-  onSubmitForReview: (title: string, creatorName: string) => void;
+  onSubmitForReview: (title: string) => void;
 }
 
 export const EditorView: React.FC<EditorViewProps> = ({
@@ -50,7 +50,6 @@ export const EditorView: React.FC<EditorViewProps> = ({
   const [overrideRationale, setOverrideRationale] = useState<string>('');
   const [submitModalOpen, setSubmitModalOpen] = useState<boolean>(false);
   const [draftTitle, setDraftTitle] = useState<string>('Q4 Product Launch Announcement');
-  const [creatorName, setCreatorName] = useState<string>('Ronak Jain (Creator)');
 
   const filteredFindings = auditResult.findings.filter((f) => {
     if (filterVerdict === 'ALL') return true;
@@ -315,7 +314,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                   <span>&quot;{finding.matchedText}&quot;</span>
                   {finding.override?.overridden && (
                     <span className="text-[10px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
-                      Overridden by Creator
+                      Draft note added
                     </span>
                   )}
                 </div>
@@ -419,7 +418,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                         className="text-[11px] text-amber-700 hover:text-amber-800 flex items-center gap-1 font-medium"
                       >
                         <HelpCircle className="w-3 h-3" />
-                        <span>Appeal or Override with Rationale</span>
+                        <span>Add Local Context Note</span>
                       </button>
                     </div>
                   </div>
@@ -436,10 +435,10 @@ export const EditorView: React.FC<EditorViewProps> = ({
           <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl">
             <div className="flex items-center space-x-2 text-amber-600">
               <AlertTriangle className="w-5 h-5" />
-              <h3 className="font-bold text-base text-slate-900">Creator Appeal & Exemption</h3>
+              <h3 className="font-bold text-base text-slate-900">Local Context Note</h3>
             </div>
             <p className="text-xs text-slate-600 leading-relaxed">
-              If your phrasing is intentional or covered by a special business exception, attach your documented rationale. It will appear directly in the Brand Reviewer queue.
+              This note is saved only in the current browser draft state. It does not change the verification verdict, create a formal appeal, or authorize approval. Include the rationale in your submission discussion if the reviewer needs it.
             </p>
 
             <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs font-mono text-slate-800">
@@ -449,7 +448,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
             <textarea
               value={overrideRationale}
               onChange={(e) => setOverrideRationale(e.target.value)}
-              placeholder="State your business rationale for overriding this rule..."
+              placeholder="Add context for your own draft..."
               rows={3}
               className="w-full bg-slate-50 text-slate-900 text-xs border border-slate-300 rounded-lg p-3 focus:outline-none focus:ring-1 focus:ring-amber-500"
             />
@@ -470,7 +469,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 }}
                 className="px-4 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-semibold text-xs transition-all shadow-xs"
               >
-                Submit Exemption
+                Save Draft Note
               </button>
             </div>
           </div>
@@ -500,16 +499,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 />
               </div>
 
-              <div>
-                <label className="block text-slate-700 font-semibold mb-1">Creator Name</label>
-                <input
-                  type="text"
-                  value={creatorName}
-                  onChange={(e) => setCreatorName(e.target.value)}
-                  className="w-full bg-slate-50 text-slate-900 text-xs border border-slate-300 rounded-lg p-2.5 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                />
-              </div>
-            </div>
+             </div>
 
             <div className="flex justify-end space-x-2 pt-2">
               <button
@@ -520,7 +510,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               </button>
               <button
                 onClick={() => {
-                  onSubmitForReview(draftTitle, creatorName);
+                  onSubmitForReview(draftTitle);
                   setSubmitModalOpen(false);
                 }}
                 className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition-all shadow-xs"

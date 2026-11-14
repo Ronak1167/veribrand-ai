@@ -211,7 +211,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                       <ShieldCheck className="w-4 h-4" />
                       <span>Approved by {activeItem.signedOffBy}</span>
                     </div>
-                  ) : (
+                  ) : currentUser?.role !== 'creator' ? (
                     <div className="flex items-center space-x-2">
                       <button
                         onClick={() => setChangesModalOpen(true)}
@@ -239,6 +239,8 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                         </button>
                       )}
                     </div>
+                  ) : (
+                    <span className="text-xs text-slate-500">Awaiting reviewer decision</span>
                   )}
                 </div>
 
@@ -253,7 +255,10 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                       {activeItem.sha256Hash}
                     </p>
                     <p className="text-[10px] text-slate-600">
-                      Timestamped: {activeItem.signedOffAt} • Browser-Side Content-Integrity Record Committed (SHA-256)
+                      Timestamped: {activeItem.signedOffAt} • Server-Generated SHA-256 Revision Approval Hash
+                    </p>
+                    <p className={`text-[10px] font-semibold ${activeItem.integrityVerified ? 'text-emerald-700' : 'text-rose-700'}`}>
+                      Server-side integrity check: {activeItem.integrityVerified ? 'Verified' : 'Not verified'}
                     </p>
                     {activeItem.approvalMode === 'exception' && (
                       <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-[11px] text-amber-900">
@@ -334,6 +339,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
 
                               const activeReviewerName = currentUser?.name || reviewerName;
 
+                              if (currentUser?.role === 'creator') return null;
                               return (
                                 <div className="space-y-2 pt-1">
                                   {pastDecision && (
@@ -411,7 +417,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                 </div>
               </div>
 
-              {activeItem.status === 'changes_requested' && (
+              {activeItem.status === 'changes_requested' && currentUser?.role === 'creator' && (
                 <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-5 space-y-3 shadow-xs">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-amber-900">Creator Revision & Resubmission</h4>
                   <p className="text-xs text-slate-600">Edit the current draft in response to reviewer feedback. Resubmission creates a new version and runs a fresh audit.</p>

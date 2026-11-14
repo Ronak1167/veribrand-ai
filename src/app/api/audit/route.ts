@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
 
   const payload = body as Record<string, unknown>;
   const text = payload.text;
+  if (typeof text === 'string' && text.length > 100_000) return NextResponse.json({ error: 'Text exceeds the 100 KB limit.' }, { status: 413 });
 
   if (typeof text !== 'string' || text.trim().length === 0) {
     return NextResponse.json(

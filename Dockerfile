@@ -33,10 +33,9 @@ RUN addgroup --system --gid 1001 nodejs && \
 # Set up data directory with non-root ownership for SQLite persistence
 RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
-# Copy built standalone server and static assets
-COPY --from=builder /app/public ./public
+# Copy the complete standalone output, including assets prepared during build.
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+RUN mkdir -p /app/data && chown -R nextjs:nodejs /app/data
 
 USER nextjs
 

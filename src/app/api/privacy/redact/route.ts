@@ -2,10 +2,10 @@
 // Redacts emails, phones, SSNs, credit cards, credentials, and internal IPs.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { getSessionFromRequest } from '@/lib/auth/session';
 
 interface RedactionFinding {
   type: 'email' | 'phone' | 'ssn' | 'credit_card' | 'api_key' | 'internal_ip';
-  matchSnippet: string;
   startIndex: number;
   endIndex: number;
 }
@@ -44,6 +44,7 @@ const REDACTION_PATTERNS: { type: RedactionFinding['type']; regex: RegExp; repla
 ];
 
 export async function POST(req: NextRequest) {
+  if (!getSessionFromRequest(req)) return NextResponse.json({ ok: false, error: 'Authentication required.' }, { status: 401 });
   try {
     const body = await req.json().catch(() => null);
     if (!body || typeof body !== 'object' || typeof body.text !== 'string') {
@@ -54,6 +55,7 @@ export async function POST(req: NextRequest) {
     }
 
     const originalText: string = body.text;
+    if (originalText.length > 100_000) return NextResponse.json({ ok: false, error: 'Text exceeds the 100 KB limit.' }, { status: 413 });
     let redactedText = originalText;
     const findings: RedactionFinding[] = [];
 
@@ -64,7 +66,6 @@ export async function POST(req: NextRequest) {
       while ((match = rule.regex.exec(originalText)) !== null) {
         findings.push({
           type: rule.type,
-          matchSnippet: match[0],
           startIndex: match.index,
           endIndex: match.index + match[0].length,
         });

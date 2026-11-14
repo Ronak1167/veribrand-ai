@@ -1,5 +1,5 @@
-// VeriBrand AI — Durable Relational SQLite Database Layer
-// Uses Node v25 native node:sqlite DatabaseSync with WAL mode and ACID transactions.
+// VeriBrand AI - Durable Relational SQLite Database Layer
+// Uses the Node.js built-in node:sqlite DatabaseSync with WAL mode and transactional writes.
 
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
@@ -15,7 +15,7 @@ import {
   AuditResult,
   EvidenceProvenance,
 } from '@/types';
-import { VERIFIED_METRICS } from '@/lib/engine/brand-vault-data';
+
 
 interface SubmissionRow {
   id: string;
@@ -95,19 +95,23 @@ interface EvidenceRow {
   uploaded_at: string;
 }
 
-const DB_DIR = path.resolve(process.cwd(), 'data');
-const DB_PATH = path.join(DB_DIR, 'veribrand.db');
-const PASSWORD_SALT = 'veribrand_ai_enterprise_salt_2026';
-
+const DEFAULT_DB_DIR = path.resolve(process.cwd(), 'data');
+const DB_PATH = path.resolve(/*turbopackIgnore: true*/ process.env.VERIBRAND_DB_PATH || path.join(DEFAULT_DB_DIR, 'veribrand.db'));
+const DB_DIR = path.dirname(DB_PATH);
 let dbInstance: DatabaseSync | null = null;
 
-export function hashPassword(password: string, salt: string = PASSWORD_SALT): string {
-  return crypto.scryptSync(password, salt, 32).toString('hex');
+// Per-account random salt; only the derived scrypt hash is persisted.
+export function hashPassword(password: string): string {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const derived = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `scrypt$${salt}$${derived}`;
 }
 
-export function verifyPassword(password: string, storedHash: string, salt: string = PASSWORD_SALT): boolean {
-  const hash = hashPassword(password, salt);
-  return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(storedHash, 'hex'));
+export function verifyPassword(password: string, storedHash: string): boolean {
+  const parts = storedHash.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || !/^[a-f0-9]{32}$/i.test(parts[1]) || !/^[a-f0-9]{128}$/i.test(parts[2])) return false;
+  const derived = crypto.scryptSync(password, parts[1], 64);
+  return crypto.timingSafeEqual(derived, Buffer.from(parts[2], 'hex'));
 }
 
 export function getDatabase(): DatabaseSync {
@@ -217,50 +221,42 @@ export function getDatabase(): DatabaseSync {
       uploaded_by TEXT NOT NULL,
       uploaded_at TEXT NOT NULL
     );
+    CREATE UNIQUE INDEX IF NOT EXISTS appeal_decisions_revision_finding_unique
+      ON appeal_decisions(submission_id, revision_id, finding_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS users_email_case_insensitive
+      ON users(lower(email));
   `);
 
-  // 2. Seed Default Users if empty
-  const userCount = db.prepare('SELECT count(*) as count FROM users;').get() as { count: number };
-  if (userCount.count === 0) {
-    const insertUser = db.prepare(`
-      INSERT INTO users (id, email, name, role, password_hash, created_at)
-      VALUES (?, ?, ?, ?, ?, ?);
-    `);
-    const now = new Date().toISOString();
-    insertUser.run('USR-CREATOR-01', 'creator@inkloom.ai', 'Elena Rostova', 'creator', hashPassword('Password123!'), now);
-    insertUser.run('USR-REVIEWER-01', 'reviewer@inkloom.ai', 'Marcus Vance (Brand Reviewer)', 'reviewer', hashPassword('Password123!'), now);
-    insertUser.run('USR-ADMIN-01', 'admin@inkloom.ai', 'Brand Governance Admin', 'admin', hashPassword('Password123!'), now);
-  }
-
-  // 3. Seed Initial Evidence if empty
-  const evidenceCount = db.prepare('SELECT count(*) as count FROM evidence_documents;').get() as { count: number };
-  if (evidenceCount.count === 0) {
-    const insertEvidence = db.prepare(`
-      INSERT INTO evidence_documents (id, metric_id, document_name, section_citation, mime_type, file_size_bytes, sha256_checksum, status, uploaded_by, uploaded_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    `);
-    const now = new Date().toISOString();
-    for (const m of VERIFIED_METRICS) {
-      insertEvidence.run(
-        `EVID-${m.id}`,
-        m.id,
-        m.sourceDoc,
-        m.section,
-        'application/pdf',
-        1048576,
-        crypto.createHash('sha256').update(m.sourceDoc + m.section).digest('hex'),
-        m.status,
-        'Compliance Officer',
-        now
-      );
-    }
-  }
-
+  // No demo users or fabricated evidence are seeded. Accounts must be explicitly bootstrapped.
   dbInstance = db;
   return db;
 }
 
 // User & Authentication Helpers
+export function hasUsers(): boolean {
+  const row = getDatabase().prepare('SELECT count(*) as count FROM users;').get() as { count: number };
+  return row.count > 0;
+}
+
+export function createUser(params: { email: string; name: string; role: 'creator' | 'reviewer' | 'admin'; password: string }): User {
+  const db = getDatabase();
+  const id = `USR-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  db.prepare('INSERT INTO users (id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?);')
+    .run(id, params.email.trim().toLowerCase(), params.name.trim(), params.role, hashPassword(params.password), now);
+  return { id, email: params.email.trim().toLowerCase(), name: params.name.trim(), role: params.role, createdAt: now };
+}
+
+export function getSubmissionOwnerId(submissionId: string): string | null {
+  const row = getDatabase().prepare('SELECT creator_id FROM submissions WHERE id = ?;').get(submissionId) as { creator_id: string } | undefined;
+  return row?.creator_id ?? null;
+}
+
+export function getAllUsers(): User[] {
+  const rows = getDatabase().prepare('SELECT id, email, name, role, created_at FROM users ORDER BY created_at ASC;').all() as Array<{ id: string; email: string; name: string; role: User['role']; created_at: string }>;
+  return rows.map(row => ({ id: row.id, email: row.email, name: row.name, role: row.role, createdAt: row.created_at }));
+}
+
 export function getUserByEmail(email: string): (User & { passwordHash: string }) | null {
   const db = getDatabase();
   const row = db.prepare('SELECT id, email, name, role, password_hash, created_at FROM users WHERE lower(email) = lower(?);').get(email) as {
@@ -309,11 +305,12 @@ export function createSession(userId: string): { token: string; user: User; expi
   if (!user) throw new Error('User not found');
 
   const token = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  const tokenHash = crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+  const expiresAt = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
 
   db.prepare('INSERT INTO sessions (token, user_id, expires_at, created_at) VALUES (?, ?, ?, ?);').run(
-    token,
+    tokenHash,
     user.id,
     expiresAt,
     now
@@ -324,12 +321,13 @@ export function createSession(userId: string): { token: string; user: User; expi
 
 export function getSession(token: string): { token: string; user: User; expiresAt: string } | null {
   const db = getDatabase();
+  const tokenHash = crypto.createHash('sha256').update(token, 'utf8').digest('hex');
   const row = db.prepare(`
     SELECT s.token, s.expires_at, u.id, u.email, u.name, u.role, u.created_at
     FROM sessions s
     JOIN users u ON s.user_id = u.id
     WHERE s.token = ?;
-  `).get(token) as {
+  `).get(tokenHash) as {
     token: string;
     expires_at: string;
     id: string;
@@ -341,12 +339,12 @@ export function getSession(token: string): { token: string; user: User; expiresA
 
   if (!row) return null;
   if (new Date(row.expires_at).getTime() < Date.now()) {
-    db.prepare('DELETE FROM sessions WHERE token = ?;').run(token);
+    db.prepare('DELETE FROM sessions WHERE token = ?;').run(tokenHash);
     return null;
   }
 
   return {
-    token: row.token,
+    token,
     expiresAt: row.expires_at,
     user: {
       id: row.id,
@@ -360,7 +358,8 @@ export function getSession(token: string): { token: string; user: User; expiresA
 
 export function deleteSession(token: string): boolean {
   const db = getDatabase();
-  const res = db.prepare('DELETE FROM sessions WHERE token = ?;').run(token);
+  const tokenHash = crypto.createHash('sha256').update(token, 'utf8').digest('hex');
+  const res = db.prepare('DELETE FROM sessions WHERE token = ?;').run(tokenHash);
   return res.changes > 0;
 }
 
@@ -368,7 +367,11 @@ export function deleteSession(token: string): boolean {
 export function getAllSubmissions(): ReviewSubmission[] {
   const db = getDatabase();
   const rows = db.prepare('SELECT * FROM submissions ORDER BY created_at DESC;').all() as unknown as SubmissionRow[];
+  return rows.map((r) => assembleSubmission(r));
+}
 
+export function getSubmissionsForCreator(creatorId: string): ReviewSubmission[] {
+  const rows = getDatabase().prepare('SELECT * FROM submissions WHERE creator_id = ? ORDER BY created_at DESC;').all(creatorId) as unknown as SubmissionRow[];
   return rows.map((r) => assembleSubmission(r));
 }
 
@@ -430,6 +433,18 @@ function assembleSubmission(r: SubmissionRow): ReviewSubmission {
   };
 }
 
+export function verifySubmissionApprovalIntegrity(submissionId: string): boolean {
+  const sub = getSubmissionById(submissionId);
+  if (!sub || sub.status !== 'approved' || !sub.sha256Hash || !/^[a-f0-9]{64}$/i.test(sub.sha256Hash) || !sub.signedOffAt || !sub.signedOffBy || !sub.currentRevisionId) return false;
+  const revision = (sub.revisionHistory || []).find(item => item.revisionId === sub.currentRevisionId);
+  if (!revision || revision.text !== sub.currentText) return false;
+  const revisionHash = crypto.createHash('sha256').update(sub.currentText, 'utf8').digest('hex');
+  if (revision.sha256Hash !== revisionHash) return false;
+  const canonical = JSON.stringify({ version: 1, submissionId: sub.id, revisionId: sub.currentRevisionId, channel: sub.channel, text: sub.currentText, reviewer: sub.signedOffBy, approvedAt: sub.signedOffAt });
+  const expected = crypto.createHash('sha256').update(canonical, 'utf8').digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(sub.sha256Hash, 'hex'));
+}
+
 export function createSubmission(params: {
   id?: string;
   title: string;
@@ -443,7 +458,7 @@ export function createSubmission(params: {
   const submissionId = params.id || `SUB-${Date.now().toString(36).toUpperCase()}`;
   const revisionId = `${submissionId}-REV-1`;
   const now = new Date().toISOString();
-  const sha256 = crypto.createHash('sha256').update(params.text.trim()).digest('hex');
+  const sha256 = crypto.createHash('sha256').update(params.text, 'utf8').digest('hex');
 
   db.prepare(`
     INSERT INTO submissions (
@@ -501,11 +516,12 @@ export function addSubmissionRevision(
   const db = getDatabase();
   const sub = getSubmissionById(submissionId);
   if (!sub) throw new Error('Submission not found');
+  if (sub.status !== 'changes_requested') throw new Error('Only submissions awaiting changes can be revised.');
 
   const version = (sub.revisionHistory?.length || 1) + 1;
   const revisionId = `${submissionId}-REV-${version}`;
   const now = new Date().toISOString();
-  const sha256 = crypto.createHash('sha256').update(revisedText.trim()).digest('hex');
+  const sha256 = crypto.createHash('sha256').update(revisedText, 'utf8').digest('hex');
 
   db.prepare(`
     INSERT INTO submission_revisions (
@@ -524,9 +540,16 @@ export function addSubmissionRevision(
 
   db.prepare(`
     UPDATE submissions
-    SET current_revision_id = ?, current_text = ?, audit_result_json = ?, status = 'pending_review', updated_at = ?
-    WHERE id = ?;
+    SET current_revision_id = ?, current_text = ?, audit_result_json = ?, status = 'pending_review',
+        sha256_hash = NULL, signed_off_at = NULL, signed_off_by = NULL, approval_mode = NULL,
+        exception_rationale = NULL, updated_at = ?
+    WHERE id = ? AND status = 'changes_requested';
   `).run(revisionId, revisedText, JSON.stringify(auditResult), now, submissionId);
+  const revisionUpdate = db.prepare('SELECT changes() AS changes;').get() as { changes: number };
+  if (revisionUpdate.changes !== 1) {
+    db.prepare('DELETE FROM submission_revisions WHERE id = ?;').run(revisionId);
+    throw new Error('Resubmission rejected because the submission state changed.');
+  }
 
   logAuditEvent(
     'REVISION_SUBMITTED',
@@ -546,18 +569,20 @@ export function updateSubmissionApproval(
   reviewerName: string,
   approvalMode: 'standard' | 'exception',
   sha256Hash: string,
-  exceptionRationale?: string
+  exceptionRationale?: string,
+  expectedRevisionId?: string,
+  approvedAt?: string
 ): ReviewSubmission {
   const db = getDatabase();
   const sub = getSubmissionById(submissionId);
   if (!sub) throw new Error('Submission not found');
 
-  const now = new Date().toISOString();
+  const now = approvedAt || new Date().toISOString();
 
   db.prepare(`
     UPDATE submissions
     SET status = 'approved', signed_off_at = ?, signed_off_by = ?, approval_mode = ?, sha256_hash = ?, exception_rationale = ?, updated_at = ?
-    WHERE id = ?;
+    WHERE id = ? AND current_revision_id = ? AND status = 'pending_review';
   `).run(
     now,
     reviewerName,
@@ -565,8 +590,11 @@ export function updateSubmissionApproval(
     sha256Hash,
     exceptionRationale || null,
     now,
-    submissionId
+    submissionId,
+    expectedRevisionId || sub.currentRevisionId
   );
+  const updateResult = db.prepare('SELECT changes() AS changes;').get() as { changes: number };
+  if (updateResult.changes !== 1) throw new Error('Approval rejected because the current revision or status changed.');
 
   logAuditEvent(
     approvalMode === 'exception' ? 'EXCEPTION_GRANTED' : 'SUBMISSION_APPROVED',
@@ -595,8 +623,10 @@ export function requestSubmissionChanges(
   db.prepare(`
     UPDATE submissions
     SET status = 'changes_requested', updated_at = ?
-    WHERE id = ?;
+    WHERE id = ? AND status = 'pending_review';
   `).run(now, submissionId);
+  const changeResult = db.prepare('SELECT changes() AS changes;').get() as { changes: number };
+  if (changeResult.changes !== 1) throw new Error('Change request rejected because the submission state changed.');
 
   addComment(submissionId, reviewerId, reviewerName, 'Brand Reviewer', commentText);
 
@@ -629,7 +659,8 @@ export function addAppealDecision(params: {
   db.prepare(`
     INSERT INTO appeal_decisions (
       id, submission_id, revision_id, finding_id, finding_fingerprint, decision, rationale, reviewer_id, reviewer_name, decided_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    ) SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE EXISTS (SELECT 1 FROM submissions WHERE id = ? AND current_revision_id = ? AND status = 'pending_review');
   `).run(
     id,
     params.submissionId,
@@ -640,8 +671,12 @@ export function addAppealDecision(params: {
     params.rationale,
     params.reviewerId,
     params.reviewerName,
-    now
+    now,
+    params.submissionId,
+    params.revisionId
   );
+  const insertResult = db.prepare('SELECT changes() AS changes;').get() as { changes: number };
+  if (insertResult.changes !== 1) throw new Error('Appeal rejected because the current revision or review state changed.');
 
   logAuditEvent(
     'APPEAL_DECIDED',
@@ -744,12 +779,12 @@ export function getAllEvidence(): EvidenceProvenance[] {
   return rows.map((r) => ({
     metricId: r.metric_id,
     metricName: r.document_name,
-    approvedValue: 'Certified',
+    approvedValue: 'Not specified',
     sourceDocument: r.document_name,
     sectionCitation: r.section_citation,
-    validityPeriod: 'Active FY25-FY26',
-    lastAuditedDate: r.uploaded_at.slice(0, 10),
-    status: r.status === 'outdated' ? 'outdated' : 'active',
+    validityPeriod: 'Not specified',
+    lastAuditedDate: 'Not audited',
+    status: r.status === 'outdated' ? 'outdated' : r.status === 'verified' ? 'active' : 'pending',
   }));
 }
 
@@ -766,10 +801,10 @@ export function addEvidenceDocument(params: {
   const db = getDatabase();
   const id = `EVID-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
   const now = new Date().toISOString();
-  const mime = params.mimeType || 'application/pdf';
-  const size = params.fileSizeBytes || 1048576;
-  const hash = params.sha256Checksum || crypto.createHash('sha256').update(params.documentName + now).digest('hex');
-  const status = params.status || 'verified';
+  const mime = params.mimeType || 'application/octet-stream';
+  const size = params.fileSizeBytes ?? 0;
+  const hash = params.sha256Checksum || '';
+  const status = params.status || 'pending';
 
   db.prepare(`
     INSERT INTO evidence_documents (
@@ -800,12 +835,11 @@ export function addEvidenceDocument(params: {
   return {
     metricId: params.metricId,
     metricName: params.documentName,
-    approvedValue: 'Certified',
+    approvedValue: 'Not specified',
     sourceDocument: params.documentName,
     sectionCitation: params.sectionCitation,
-    validityPeriod: 'Active FY25-FY26',
-    lastAuditedDate: now.slice(0, 10),
-    status: status === 'outdated' ? 'outdated' : 'active',
+    validityPeriod: 'Not specified',
+    lastAuditedDate: 'Not audited',
+    status: status === 'outdated' ? 'outdated' : status === 'verified' ? 'active' : 'pending',
   };
 }
-

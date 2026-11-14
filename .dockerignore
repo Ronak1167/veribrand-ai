@@ -24,8 +24,9 @@ __pycache__
 *$py.class
 .pytest_cache
 
-# Environment
-.env*.local
+# Environment and secrets
+.env*
+!.env.example
 
 # Tests and temporary scratch files
 check_cases.py
