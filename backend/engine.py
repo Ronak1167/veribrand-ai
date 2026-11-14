@@ -71,12 +71,12 @@ VERIFIED_METRICS = {
         "tolerance": "Audited Annual Recurring Revenue (ARR) is $18.5M. Unaudited ARR claims trigger direct CONFLICT. General annual revenue claims trigger UNVERIFIED as total revenue is not certified in audited disclosures."
     },
     "MTR-007": {
-        "name": "Legacy Pricing Tier",
-        "approved": "$79/mo (Current)",
+        "name": "Legacy Entry Pricing Tier",
+        "approved": "$49/mo (Discontinued)",
         "raw": 49.0,
-        "source": "Product Pricing Schedule FY26 v2.0",
-        "citation": "Pricing Appendix A",
-        "validity": "Discontinued on 2026-09-01",
+        "source": "Product Pricing Schedule FY24 (Superseded)",
+        "citation": "Standard Tier (Archived)",
+        "validity": "Discontinued 2026-09-01; superseded by $79/mo Starter tier",
         "status": "outdated"
     },
     "MTR-008": {
