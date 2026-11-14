@@ -406,7 +406,7 @@ export default function Home() {
   const pendingCount = submissions.filter((s) => s.status === 'pending_review').length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
       {/* Top Navigation */}
       <Navbar
         activeTab={activeTab}
@@ -450,10 +450,10 @@ export default function Home() {
       </main>
 
       {/* Global Footer with Hackathon Credentials & Tech Stack Details */}
-      <footer className="bg-slate-900 border-t border-slate-800/80 py-6 text-xs text-slate-500">
+      <footer className="bg-white border-t border-slate-200 py-6 text-xs text-slate-500 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="font-semibold text-slate-400">
+            <p className="font-semibold text-slate-700">
               VeriBrand AI • Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5">
@@ -462,11 +462,11 @@ export default function Home() {
           </div>
 
           <div className="flex items-center space-x-4 text-[11px]">
-            <span>Team: <strong className="text-slate-300">Team Deccans</strong></span>
+            <span>Team: <strong className="text-slate-800">Team Deccans</strong></span>
             <span>•</span>
-            <span>Solo Architect: <strong className="text-slate-300">Ronak Jain</strong></span>
+            <span>Solo Architect: <strong className="text-slate-800">Ronak Jain</strong></span>
             <span>•</span>
-            <span>Status: <strong className="text-emerald-400">Hackathon MVP · Demo Data</strong></span>
+            <span>Status: <strong className="text-emerald-600 font-bold">Hackathon MVP · Demo Data</strong></span>
           </div>
         </div>
       </footer>
