@@ -43,12 +43,12 @@ export const BrandVaultModal: React.FC = () => {
         <div>
           <div className="flex items-center space-x-2">
             <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center gap-1">
-              <Database className="w-3 h-3" /> Ground-Truth Repository
+              <Database className="w-3 h-3" /> Configured Demo Registry
             </span>
-            <h2 className="text-xl font-bold text-white">The Dynamic Brand Vault</h2>
+            <h2 className="text-xl font-bold text-white">Seeded Brand Vault (Demo)</h2>
           </div>
           <p className="text-xs text-slate-400 mt-1 max-w-2xl leading-relaxed">
-            Centralized ground-truth repository storing brand style guides, verified statistical registries, trademark glossaries, and visual tokens used by the Two-Tier verification engine.
+            Configured demo metrics, terminology, trademark rules, and visual tokens used by the deterministic verification engine. Entries are bundled in the app; document ingestion and source versioning are not implemented.
           </p>
         </div>
 
@@ -59,7 +59,7 @@ export const BrandVaultModal: React.FC = () => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search ground-truth metrics..."
+            placeholder="Search configured demo metrics..."
             aria-label="Search ground-truth metrics"
             className="w-full bg-slate-950 text-xs text-slate-100 border border-slate-700 rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:ring-1 focus:ring-cyan-500"
           />
@@ -77,7 +77,7 @@ export const BrandVaultModal: React.FC = () => {
           }`}
         >
           <ShieldCheck className="w-4 h-4" />
-          <span>Verified Metric Registry ({VERIFIED_METRICS.length})</span>
+          <span>Configured Metric Registry ({VERIFIED_METRICS.length})</span>
         </button>
 
         <button

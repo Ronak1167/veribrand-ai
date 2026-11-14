@@ -76,7 +76,7 @@ export async function GET() {
     engine: 'VeriBrand AI Audit Engine',
     version: '1.0.0-round2-build',
     status: 'operational',
-    tier1: 'Aho-Corasick Deterministic Filter (<1ms)',
-    tier2: 'Grounded Hybrid Claim Verifier (Tri-State)',
+    tier1: 'Aho-Corasick Deterministic Filter',
+    tier2: 'Configured-Metric Claim Verifier (Tri-State)',
   });
 }

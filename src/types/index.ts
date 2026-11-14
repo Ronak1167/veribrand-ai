@@ -59,6 +59,7 @@ export interface LintFinding {
   category: FindingCategory;
   verdict: ClaimVerdict;
   reasonCode?: ReasonCode;
+  ruleId?: string;
   matchedText: string;
   startIndex: number;
   endIndex: number;
@@ -120,6 +121,22 @@ export interface ReviewComment {
   timestamp: string;
 }
 
+export interface SubmissionRevision {
+  version: number;
+  text: string;
+  auditResult: AuditResult;
+  submittedAt: string;
+  submittedBy: string;
+}
+
+export interface AppealDecision {
+  findingId: string;
+  decision: 'accepted' | 'rejected';
+  rationale: string;
+  reviewerName: string;
+  decidedAt: string;
+}
+
 export interface ReviewSubmission {
   id: string;
   title: string;
@@ -134,6 +151,10 @@ export interface ReviewSubmission {
   sha256Hash?: string;
   signedOffAt?: string;
   signedOffBy?: string;
+  approvalMode?: 'standard' | 'exception';
+  exceptionRationale?: string;
+  revisionHistory?: SubmissionRevision[];
+  appealDecisions?: AppealDecision[];
 }
 
 export interface AmbiguityMetric {

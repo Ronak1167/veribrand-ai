@@ -18,11 +18,11 @@
 Modern enterprises publish at dizzying velocity across dispersed teams, freelance agencies, and generative AI drafting tools. When brand governance acts as a rigid, black-box gatekeeper with binary rejections, creators bypass review workflows.
 
 **VeriBrand AI** transforms brand governance from a punitive blocker into an active, explainable co-pilot:
-1. **Dynamic Brand Vault**: Centralized ground truth indexing style guides, verified statistical registries, trademark rules, and visual swatches.
-2. **Two-Tier Hybrid Pipeline**: Sub-10ms deterministic filtering (Aho-Corasick) paired with grounded claim fact-checking (Tri-state evaluation).
+1. **Seeded Brand Vault (Demo)**: Configured demo metrics, trademark rules, and visual swatches; document ingestion and source versioning are not yet implemented.
+2. **Two-Tier Hybrid Pipeline**: Measured deterministic filtering (Aho-Corasick; latency varies by device and input) paired with deterministic claim verification against configured demo metrics (Tri-state evaluation).
 3. **Intent-Preserving Rewrites**: Generates 3 tone-matched alternatives (Direct, Punchy, Conservative) with 1-click adoption.
 4. **Human-in-the-Loop Sign-Off**: Side-by-side diff inspection, creator appeal notes, and browser-side SHA-256 content-integrity verification records.
-5. **Reverse Brand Intelligence**: Guideline Ambiguity Heatmap analyzing recurring review disputes to advise leadership on clarifying confusing stylebook rules.
+5. **Reverse Brand Intelligence**: Guideline Ambiguity Heatmap combining seeded benchmark values with current-draft findings and browser-recorded creator overrides.
 
 ---
 
@@ -32,9 +32,9 @@ In our Round 1 proposal, we committed to delivering three primary architectural 
 
 | Named Improvement | Technical Architecture | User & Enterprise Value |
 |---|---|---|
-| **1. Evidence-Backed Claim Verification Engine** | Grounded Tri-State Model (`VERIFIED`, `CONFLICT`, `UNVERIFIED`). Features programmatic evidence gating against audited Brand Vault ground truth and mandatory abstention (unverified metrics trigger `OUTDATED` or `MISSING_SOURCE`). | Prevents regulatory false-advertising fines (FTC/ASCI) and eliminates fabricated claims. |
-| **2. Intent-Preserving Explainable Corrections** | Real-time redlines paired with exact rule citations and **3 Tone-Matched Alternatives** (*Direct*, *Punchy*, *Conservative*) with 1-click replacement. | Protects creative voice while slashing routine review cycle turnaround by up to 75%. |
-| **3. Reverse Brand Intelligence & Ambiguity Feedback Loop** | Heatmap matrix tracking review redlines, creator appeals, and override ratios across 6 core brand guidelines in the seeded benchmark dataset. | Closes the loop for CMOs and Brand Directors: identifies ambiguously worded guidelines rather than blaming writers. |
+| **1. Deterministic Claim Verification Engine** | Deterministic Tri-State Model (`VERIFIED`, `CONFLICT`, `UNVERIFIED`). Compares supported claim patterns against configured demo metrics. Evidence references are seeded metadata; source-document ingestion and page-level retrieval are not implemented. It abstains (unverified metrics trigger `OUTDATED` or `MISSING_SOURCE`). | Helps identify unsupported or contradictory claims; it is not legal advice, a compliance certification, or a guarantee against regulatory penalties. |
+| **2. Intent-Preserving Explainable Corrections** | Real-time redlines paired with exact rule citations and **3 Tone-Matched Alternatives** (*Direct*, *Punchy*, *Conservative*) with 1-click replacement. | Offers deterministic rewrite alternatives while preserving creator choice. The 75% turnaround figure is an internal projected target, not a measured product outcome. |
+| **3. Reverse Brand Intelligence & Ambiguity Feedback Loop** | Heatmap combining seeded baseline metrics with current draft-scan findings and creator overrides recorded in this browser; it is not a multi-user analytics service. | Closes the loop for CMOs and Brand Directors: identifies ambiguously worded guidelines rather than blaming writers. |
 
 ---
 
@@ -46,16 +46,16 @@ In our Round 1 proposal, we committed to delivering three primary architectural 
           ┌───────────────────────┴───────────────────────┐
           ▼                                               ▼
    [ TIER-1 FILTER ]                          [ TIER-2 CLAIM VERIFIER ]
-Aho-Corasick Automaton (<1ms)             Grounded Tri-State Claim Verifier
+Aho-Corasick Automaton (<1ms)             Configured-Metric Tri-State Claim Verifier
   • Trademark Casing Rules                      • Factual Assertion Extraction
-  • Deprecated Jargon Terminology               • Audited Brand Vault Metrics
+  • Deprecated Jargon Terminology               • Configured Demo Metrics
   • Non-Brand Hex Swatches (#FF0033)            • Tri-State Verification
           │                                               │
           └───────────────────────┬───────────────────────┘
                                   ▼
                    [ Explainable Redline Matrix ]
                  • Exact Stylebook / Legal Citation
-                 • Evidence Provenance Box (if Claim)
+                 • Configured evidence metadata (if claim)
                  • 3 Tone-Matched Alternatives (Direct/Punchy/Conservative)
                                   │
                                   ▼
@@ -126,7 +126,7 @@ To facilitate frictionless evaluation, VeriBrand AI features 3 built-in demo sce
 
 VeriBrand AI enforces rigorous deterministic invariants across both its Next.js and Python engines:
 
-- **Numerical Comparison & Bidirectional Negation**: Metric assertions undergo exact numerical verification against audited Brand Vault disclosures (e.g. 94.2% client retention verified; 94.9% or 95% triggers `CONFLICT`). Preceding and subsequent negations (e.g. `"We do not provide 99.9% uptime"`, `"SOC 2 Type II is no longer active"`) are flagged as critical contractual contradictions.
+- **Numerical Comparison & Bidirectional Negation**: Metric assertions undergo exact numerical verification against configured demo Brand Vault disclosures (e.g. 94.2% client retention verified; 94.9% or 95% triggers `CONFLICT`). Preceding and subsequent negations (e.g. `"We do not provide 99.9% uptime"`, `"SOC 2 Type II is no longer active"`) are flagged as critical contractual contradictions.
 - **Context-Aware Financial Classification**: Distinguishes audited Annual Recurring Revenue ($18.5M ARR) from total annual revenue while automatically recognizing non-revenue financial contexts (seed/series funding rounds, corporate valuations, capital investments) without false classification.
 - **Entity Scope Strictness**: Ground truth customer account metrics (`420+ active enterprise customer accounts`) are strictly bound to accounts; assertions quoting "brands" or "organizations" trigger deterministic abstention (`UNVERIFIED`).
 - **Channel-Aware Governance Policies**:

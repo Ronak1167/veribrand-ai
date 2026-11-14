@@ -27,6 +27,7 @@ interface EditorViewProps {
   channel: ChannelType;
   setChannel: (ch: ChannelType) => void;
   auditResult: AuditResult;
+  rewriteNotice: string | null;
   onApplyRewrite: (finding: LintFinding, rewriteText: string) => void;
   onCreatorOverride: (findingId: string, rationale: string) => void;
   onSubmitForReview: (title: string, creatorName: string) => void;
@@ -38,6 +39,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
   channel,
   setChannel,
   auditResult,
+  rewriteNotice,
   onApplyRewrite,
   onCreatorOverride,
   onSubmitForReview,
@@ -97,6 +99,11 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-4 sm:p-6 max-w-7xl mx-auto">
+      {rewriteNotice && (
+        <div role="alert" className="lg:col-span-12 rounded-lg border border-amber-500/40 bg-amber-950/30 px-4 py-3 text-xs text-amber-200">
+          {rewriteNotice}
+        </div>
+      )}
       {/* LEFT COLUMN: Editor & Controls */}
       <div className="lg:col-span-7 flex flex-col space-y-4">
         {/* Channel Selection & Stats Bar */}
@@ -194,7 +201,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
                 Compliance Health Score
               </span>
               <h3 className="text-lg font-extrabold text-white">
-                {auditResult.complianceScore >= 90
+                {auditResult.complianceScore >= 90 && !auditResult.findings.some((f) => f.severity === 'critical' && f.verdict !== 'VERIFIED')
                   ? 'Ready for Publication'
                   : auditResult.complianceScore >= 70
                   ? 'Revisions Recommended'
@@ -240,7 +247,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
               <Sparkles className="w-3 h-3 text-cyan-400" /> The Three Named Improvements (Rubric Core)
             </span>
             <ul className="text-slate-300 space-y-1 list-disc list-inside">
-              <li><strong className="text-slate-200">1. Evidence-Backed Tri-State Engine:</strong> Grounded Brand Vault evidence references & deterministic abstention for recognized unsupported assertion patterns.</li>
+              <li><strong className="text-slate-200">1. Deterministic Claim Verification:</strong> Supported claim patterns are compared with configured demo metrics; evidence references are seeded metadata, not retrieved source documents.</li>
               <li><strong className="text-slate-200">2. Intent-Preserving Corrections:</strong> 3 tone-matched rewrites with 1-click apply.</li>
               <li><strong className="text-slate-200">3. Reverse Brand Intelligence:</strong> Guideline Ambiguity Heatmap diagnostics.</li>
             </ul>

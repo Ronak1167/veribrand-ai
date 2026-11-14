@@ -159,6 +159,7 @@ function runTier1DeterministicScan(text: string): {
 
       findings.push({
         id: `T1-R-${i}-${m.start}`,
+        ruleId: rule.id,
         category: rule.category,
         verdict: 'SUGGESTION',
         reasonCode:
@@ -183,6 +184,7 @@ function runTier1DeterministicScan(text: string): {
       const hex = data.hexData;
       findings.push({
         id: `T1-HEX-${i}-${m.start}`,
+        ruleId: 'RULE-VIS-01',
         category: 'visual_token',
         verdict: 'CONFLICT',
         reasonCode: 'FORBIDDEN_TERM',
@@ -277,76 +279,41 @@ function analyzeSentencePolarity(
   isUncertain: boolean;
   isAffirmativeIdiom: boolean;
 } {
-  // Find clause start (previous sentence or clause boundary)
+  // Scope polarity to the assertion, not the entire sentence. Sentence punctuation
+  // and contrastive/coordinating conjunctions separate independent assertions.
+  const leftBoundaries = /[;.!?\n]|\b(?:but|however|whereas|while|and)\b/gi;
   let clauseStart = 0;
-  for (let i = startIndex - 1; i >= 0; i--) {
-    const ch = text[i];
-    if (ch === '\n' || ch === ';' || ch === '!' || ch === '?') {
-      clauseStart = i + 1;
-      break;
-    }
-    // Period that is not part of a decimal number (e.g. not between digits)
-    if (ch === '.') {
-      const prevIsDigit = i > 0 && /\d/.test(text[i - 1]);
-      const nextIsDigit = i + 1 < text.length && /\d/.test(text[i + 1]);
-      if (!prevIsDigit || !nextIsDigit) {
-        clauseStart = i + 1;
-        break;
-      }
-    }
+  let boundary: RegExpExecArray | null;
+  while ((boundary = leftBoundaries.exec(text.slice(0, startIndex))) !== null) {
+    clauseStart = boundary.index + boundary[0].length;
   }
 
-  // Find clause end (next sentence or clause boundary)
-  let clauseEnd = text.length;
-  for (let i = endIndex; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '\n' || ch === ';' || ch === '!' || ch === '?') {
-      clauseEnd = i;
-      break;
-    }
-    if (ch === '.') {
-      const prevIsDigit = i > 0 && /\d/.test(text[i - 1]);
-      const nextIsDigit = i + 1 < text.length && /\d/.test(text[i + 1]);
-      if (!prevIsDigit || !nextIsDigit) {
-        clauseEnd = i;
-        break;
-      }
-    }
-  }
+  const rightBoundaries = /[;.!?\n]|\b(?:but|however|whereas|while|and)\b/gi;
+  rightBoundaries.lastIndex = endIndex;
+  const nextBoundary = rightBoundaries.exec(text);
+  const clauseEnd = nextBoundary ? nextBoundary.index : text.length;
 
   const preceding = text.slice(clauseStart, startIndex).toLowerCase();
   const matched = text.slice(startIndex, endIndex).toLowerCase();
   const subsequent = text.slice(endIndex, clauseEnd).toLowerCase();
-  const fullClause = `${preceding} ${matched} ${subsequent}`;
 
-  // Affirmative idioms (e.g. "not only", "not just", "not merely")
-  const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\b/i.test(fullClause);
+  // "Not only X" affirms X; it must be immediately attached to this assertion.
+  const isAffirmativeIdiom = /\bnot\s+(?:only|just|merely)\s+(?:(?:a|an|the)\s+)?$/i.test(preceding) || /^\s*not\s+(?:only|just|merely)\b/i.test(matched);
 
-  // Preceding negation: contractions, denial verbs, adverbs, phrasal negation
-  const hasPrecedingNegation =
-    /\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b/i.test(
-      preceding
-    );
+  const negationPattern = /\b(?:not|no|never|neither|nor|without|cannot|can't|don't|doesn't|didn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|wouldn't|couldn't|do\s+not|does\s+not|did\s+not|is\s+not|are\s+not|was\s+not|were\s+not|have\s+not|has\s+not|had\s+not|will\s+not|would\s+not|could\s+not|fails?|failed|failing|disclaims?|disclaimed|disclaiming|denies|denied|deny|denying|lacks?|lacked|lacking|no\s+longer)\b/i;
+  const subsequentNegationPattern = /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|are\s+not|was\s+not|were\s+not|isn't(?:\s+active)?|aren't|wasn't|weren't|not\s+active|not\s+guaranteed|revoked|expired|cancelled|void|suspended|dropped|fallen|disclaimed|failed|lacks?|without)\b/i;
+  const hasInternalNegation = /\b(?:not|never|no|without|no\s+longer|isn't|aren't|cannot|can't)\b/i.test(matched);
 
-  // Subsequent negation / revocation:
-  const hasSubsequentNegation =
-    /\b(?:is\s+no\s+longer|no\s+longer|is\s+not|isn't(?:\s+active)?|aren't|wasn't|weren't|not\s+active|not\s+guaranteed|revoked|expired|cancelled|void|suspended|dropped|fallen|disclaimed|failed|lacks?|without)\b/i.test(
-      subsequent
-    );
+  const isNegated = !isAffirmativeIdiom && (
+    negationPattern.test(preceding) ||
+    subsequentNegationPattern.test(subsequent) ||
+    hasInternalNegation
+  );
 
-  // Negation inside matched slice (e.g. "retention rate is no longer 94.2%", "not SOC 2 Type II")
-  const hasInternalNegation =
-    /\b(?:not|never|no|without|no\s+longer|isn't|aren't|cannot|can't)\b/i.test(matched);
-
-  const isNegated =
-    !isAffirmativeIdiom &&
-    (hasPrecedingNegation || hasSubsequentNegation || hasInternalNegation);
-
-  // Uncertainty / Hedging
-  const isUncertain =
-    /\b(?:might|maybe|possibly|perhaps|unclear|uncertain|alleged|allegedly|rumored|unconfirmed|not\s+sure)\b/i.test(
-      fullClause
-    );
+  const uncertaintyPattern = /\b(?:might|maybe|possibly|perhaps|unclear|uncertain|alleged|allegedly|rumored|unconfirmed|not\s+sure)\b/i;
+  const isUncertain = uncertaintyPattern.test(preceding) ||
+    uncertaintyPattern.test(matched) ||
+    uncertaintyPattern.test(subsequent);
 
   return { isNegated, isUncertain, isAffirmativeIdiom };
 }
@@ -368,6 +335,24 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
       claimType: 'uptime',
       rawNumber: parseFloat(numStr),
       isNegated: polarity.isNegated,
+      isUncertain: polarity.isUncertain,
+    });
+  }
+
+  // Anaphoric continuation: "We provide uptime, but it is not 99.9%."
+  const anaphoricUptimeRegex = /\b(?:(?:it|this|that)\s+(?:(?:is|was|remains?)\s+not|isn't|wasn't|no\s+longer)|(?:uptime|availability|sla)\s+(?:(?:is|was|remains?)\s+not|isn't|wasn't|no\s+longer))\s+([0-9]{2}(?:\.[0-9]+)?)\s*(?:%|percent)/gi;
+  while ((match = anaphoricUptimeRegex.exec(text)) !== null) {
+    const contextStart = Math.max(0, match.index - 100);
+    const context = text.slice(contextStart, match.index).toLowerCase();
+    if (!/\b(?:uptime|availability|sla)\b/.test(context) && !/^\s*(?:uptime|availability|sla)\b/i.test(match[0])) continue;
+    const polarity = analyzeSentencePolarity(text, match.index, match.index + match[0].length);
+    claims.push({
+      text: match[0],
+      startIndex: match.index,
+      endIndex: match.index + match[0].length,
+      claimType: 'uptime',
+      rawNumber: parseFloat(match[1]),
+      isNegated: true,
       isUncertain: polarity.isUncertain,
     });
   }
@@ -399,10 +384,10 @@ function extractClaimsFromText(text: string): ExtractedClaim[] {
 
   // 3. Revenue / ARR claims (distinguish ARR from total annual revenue; ignore non-revenue contexts)
   const revenueRegex =
-    /(?:(\$([0-9.]+)\s*(?:M|million|B|billion)\s*(?:in\s+)?(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue))|((?:annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue)\s*(?:of|is|was|reached|hit|at|stands\s+at)?\s*\$([0-9.]+)\s*(?:M|million|B|billion)))\b/gi;
+    /(?:(\$([0-9.]+)\s*(?:M|million|B|billion)\s*(?:in\s+)?(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue))|((?:annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue)\s*(?:of|is|was|reached|hit|at|stands\s+at)?\s*\$([0-9.]+)\s*(?:M|million|B|billion)(?:\s+(ARR|annual\s+recurring\s+revenue))?))\b/gi;
   while ((match = revenueRegex.exec(text)) !== null) {
     const rawDigits = match[2] || match[5];
-    const rawUnit = (match[3] || match[4] || '')
+    const rawUnit = (match[6] || match[3] || match[4] || '')
       .toLowerCase()
       .replace(/^(annual\s+recurring\s+revenue|arr|annual\s+revenue|total\s+revenue|revenue).*/i, '$1')
       .replace(/\s+/g, ' ')

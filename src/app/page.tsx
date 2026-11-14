@@ -73,6 +73,7 @@ export default function Home() {
   const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
   const [submissions, setSubmissions] = useState<ReviewSubmission[]>(INITIAL_SUBMISSIONS);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
+  const [rewriteNotice, setRewriteNotice] = useState<string | null>(null);
 
   // Restore persistent state after hydration without causing SSR mismatch or synchronous render cascades
   useEffect(() => {
@@ -118,6 +119,30 @@ export default function Home() {
     return auditContent(content, channel);
   }, [content, channel]);
 
+  const getHeatmapRuleId = (finding: LintFinding): string | undefined => {
+    if (finding.ruleId) return finding.ruleId;
+    const metricId = finding.evidence?.metricId;
+    if (!metricId) return undefined;
+    if (metricId === 'MTR-007') return 'RULE-PRICE-07';
+    if (['MTR-001', 'MTR-002', 'MTR-003', 'MTR-004', 'MTR-005', 'MTR-006', 'MTR-008'].includes(metricId)) return 'RULE-CLAIM-03';
+    return undefined;
+  };
+
+  // Display seeded benchmark totals plus findings from the current live audit.
+  const displayedAmbiguityMetrics = useMemo(() => ambiguityMetrics.map((metric) => {
+    const liveTriggers = auditResult.findings.filter((finding) =>
+      getHeatmapRuleId(finding) === metric.ruleId
+    ).length;
+    const totalTriggers = metric.totalTriggers + liveTriggers;
+    return {
+      ...metric,
+      totalTriggers,
+      overrideRatePct: totalTriggers > 0
+        ? Math.round((metric.overrideCount / totalTriggers) * 1000) / 10
+        : 0,
+    };
+  }), [ambiguityMetrics, auditResult]);
+
   // Handle Loading Preset Demo Scenarios
   const handleSelectPreset = (presetId: string) => {
     const draft = PRESET_DRAFTS.find((p) => p.id === presetId);
@@ -130,19 +155,18 @@ export default function Home() {
 
   // 1-Click Rewrite Application (The 2nd Named Improvement)
   const handleApplyRewrite = (finding: LintFinding, rewriteText: string) => {
-    setContent((prev) => {
-      if (
-        finding.startIndex !== undefined &&
-        finding.endIndex !== undefined &&
-        finding.startIndex >= 0 &&
-        finding.endIndex <= prev.length &&
-        prev.slice(finding.startIndex, finding.endIndex) === finding.matchedText
-      ) {
-        return prev.slice(0, finding.startIndex) + rewriteText + prev.slice(finding.endIndex);
-      }
-      // Safe no-op on stale or misaligned spans to prevent corrupting text
-      return prev;
-    });
+    if (
+      finding.startIndex !== undefined &&
+      finding.endIndex !== undefined &&
+      finding.startIndex >= 0 &&
+      finding.endIndex <= content.length &&
+      content.slice(finding.startIndex, finding.endIndex) === finding.matchedText
+    ) {
+      setContent(content.slice(0, finding.startIndex) + rewriteText + content.slice(finding.endIndex));
+      setRewriteNotice(null);
+      return;
+    }
+    setRewriteNotice('This rewrite is stale because the draft changed after the finding was created. Run a fresh audit and select the finding again.');
   };
 
   // Creator Appeal & Override with Rationale
@@ -155,39 +179,28 @@ export default function Home() {
         timestamp: new Date().toISOString(),
       };
 
-      // Feed into Ambiguity Heatmap (Reverse Brand Intelligence)
-      // Attribution: Target specific rule/metric strictly instead of sweeping the entire category
-      setAmbiguityMetrics((prev) => {
-        const targetRuleId = finding.id?.includes('T1-')
-          ? finding.id.replace(/^(?:PY-)?T1-([A-Z0-9-]+)-\d+$/, '$1')
-          : finding.evidence?.metricId;
-
-        const specificMatch = prev.find((m) =>
-          (targetRuleId && m.ruleId === targetRuleId) ||
-          (finding.evidence?.metricId && m.ruleId.includes(finding.evidence.metricId)) ||
-          (finding.id && m.ruleId.toLowerCase() === finding.id.toLowerCase())
-        );
-
-        if (!specificMatch) {
-          return prev;
-        }
-
-        return prev.map((metric) => {
-          if (metric.ruleId === specificMatch.ruleId) {
-            const newOverrides = metric.overrideCount + 1;
-            const newRate = Math.round((newOverrides / (metric.totalTriggers + 1)) * 1000) / 10;
-            return {
-              ...metric,
-              overrideCount: newOverrides,
-              totalTriggers: metric.totalTriggers + 1,
-              overrideRatePct: newRate,
-              confusionScore: Math.min(100, Math.round(metric.confusionScore + 3)),
-              status: newRate > 40 ? 'ambiguous' : 'monitor',
-            };
-          }
-          return metric;
-        });
-      });
+      // Attribute the appeal to the stable rule identity; do not count it as a new scan trigger.
+      const targetRuleId = getHeatmapRuleId(finding);
+      if (targetRuleId) {
+        setAmbiguityMetrics((prev) => prev.map((metric) => {
+          if (metric.ruleId !== targetRuleId) return metric;
+          const overrideCount = metric.overrideCount + 1;
+          const liveTriggers = auditResult.findings.filter((item) =>
+            getHeatmapRuleId(item) === targetRuleId
+          ).length;
+          const denominator = metric.totalTriggers + liveTriggers;
+          const overrideRatePct = denominator > 0
+            ? Math.round((overrideCount / denominator) * 1000) / 10
+            : 0;
+          return {
+            ...metric,
+            overrideCount,
+            overrideRatePct,
+            confusionScore: Math.min(100, Math.round(metric.confusionScore + 3)),
+            status: overrideRatePct > 40 ? 'ambiguous' : 'monitor',
+          };
+        }));
+      }
     }
   };
 
@@ -203,6 +216,8 @@ export default function Home() {
       originalText: content,
       currentText: content,
       auditResult: { ...auditResult },
+      revisionHistory: [{ version: 1, text: content, auditResult: { ...auditResult }, submittedAt: new Date().toISOString(), submittedBy: creatorName }],
+      appealDecisions: [],
       comments: [
         {
           id: `COM-${Date.now()}`,
@@ -222,14 +237,30 @@ export default function Home() {
   const handleApproveSubmission = (
     submissionId: string,
     sha256Hash: string,
-    reviewerName: string
+    reviewerName: string,
+    approvalMode: 'standard' | 'exception',
+    exceptionRationale?: string
   ) => {
     setSubmissions((prev) =>
       prev.map((sub) => {
         if (sub.id === submissionId) {
+          const acceptedAppealIds = new Set(
+            (sub.appealDecisions ?? [])
+              .filter((decision) => decision.decision === 'accepted')
+              .map((decision) => decision.findingId)
+          );
+          const hasCriticalUnresolved = sub.auditResult.findings.some(
+            (finding) => finding.severity === 'critical' &&
+              finding.verdict !== 'VERIFIED' &&
+              !acceptedAppealIds.has(finding.id)
+          );
+          if (hasCriticalUnresolved && (approvalMode !== 'exception' || !exceptionRationale?.trim())) return sub;
+          if (!hasCriticalUnresolved && approvalMode === 'exception' && !exceptionRationale?.trim()) return sub;
           return {
             ...sub,
             status: 'approved',
+            approvalMode,
+            exceptionRationale: approvalMode === 'exception' ? exceptionRationale?.trim() : undefined,
             sha256Hash,
             signedOffAt: new Date().toISOString(),
             signedOffBy: reviewerName,
@@ -239,7 +270,7 @@ export default function Home() {
                 id: `COM-${Date.now()}`,
                 author: reviewerName,
                 role: 'Brand Reviewer',
-                text: `Approved content and committed SHA-256 integrity hash: ${sha256Hash.slice(0, 20)}...`,
+                text: approvalMode === 'exception' ? 'Exception approval: ' + (exceptionRationale ?? '') + '. SHA-256: ' + sha256Hash.slice(0, 20) + '...' : 'Approved content and committed SHA-256 integrity hash: ' + sha256Hash.slice(0, 20) + '...',
                 timestamp: new Date().toISOString(),
               },
             ],
@@ -248,6 +279,74 @@ export default function Home() {
         return sub;
       })
     );
+  };
+
+  // Creator resubmission creates a new revision and a fresh audit.
+  const handleResubmit = (submissionId: string, revisedText: string, creatorName: string) => {
+    const current = submissions.find((item) => item.id === submissionId);
+    if (!current || current.status !== 'changes_requested' || !revisedText.trim()) return;
+    const revisedAudit = auditContent(revisedText, current.channel);
+    const submittedAt = new Date().toISOString();
+    setSubmissions((prev) => prev.map((sub) => {
+      if (sub.id !== submissionId || sub.status !== 'changes_requested') return sub;
+      const history = sub.revisionHistory ?? [{
+        version: 1, text: sub.originalText, auditResult: sub.auditResult,
+        submittedAt: sub.submittedAt, submittedBy: sub.creatorName,
+      }];
+      return {
+        ...sub,
+        status: 'pending_review',
+        currentText: revisedText,
+        auditResult: revisedAudit,
+        submittedAt,
+        sha256Hash: undefined,
+        signedOffAt: undefined,
+        signedOffBy: undefined,
+        approvalMode: undefined,
+        exceptionRationale: undefined,
+        revisionHistory: [...history, {
+          version: history.length + 1,
+          text: revisedText,
+          auditResult: revisedAudit,
+          submittedAt,
+          submittedBy: creatorName,
+        }],
+        comments: [...sub.comments, {
+          id: 'COM-' + Date.now(),
+          author: creatorName,
+          role: 'Creator',
+          text: 'Resubmitted revision ' + (history.length + 1) + ' for review. New compliance score: ' + revisedAudit.complianceScore + '/100.',
+          timestamp: submittedAt,
+        }],
+      };
+    }));
+  };
+
+  const handleDecideAppeal = (
+    submissionId: string,
+    findingId: string,
+    decision: 'accepted' | 'rejected',
+    rationale: string,
+    reviewerName: string
+  ) => {
+    if (!rationale.trim()) return;
+    const decidedAt = new Date().toISOString();
+    setSubmissions((prev) => prev.map((sub) => {
+      if (sub.id !== submissionId) return sub;
+      const decisions = sub.appealDecisions ?? [];
+      if (decisions.some((item) => item.findingId === findingId)) return sub;
+      return {
+        ...sub,
+        appealDecisions: [...decisions, { findingId, decision, rationale: rationale.trim(), reviewerName, decidedAt }],
+        comments: [...sub.comments, {
+          id: 'COM-' + Date.now(),
+          author: reviewerName,
+          role: 'Brand Reviewer',
+          text: 'Creator appeal ' + decision + ' for finding ' + findingId + ': ' + rationale.trim(),
+          timestamp: decidedAt,
+        }],
+      };
+    }));
   };
 
   // Brand Reviewer Request Changes
@@ -325,6 +424,7 @@ export default function Home() {
             channel={channel}
             setChannel={setChannel}
             auditResult={auditResult}
+            rewriteNotice={rewriteNotice}
             onApplyRewrite={handleApplyRewrite}
             onCreatorOverride={handleCreatorOverride}
             onSubmitForReview={handleSubmitForReview}
@@ -337,11 +437,13 @@ export default function Home() {
             onApproveSubmission={handleApproveSubmission}
             onRequestChanges={handleRequestChanges}
             onAddComment={handleAddComment}
+            onResubmit={handleResubmit}
+            onDecideAppeal={handleDecideAppeal}
           />
         )}
 
         {activeTab === 'heatmap' && (
-          <AmbiguityHeatmapView metrics={ambiguityMetrics} />
+          <AmbiguityHeatmapView metrics={displayedAmbiguityMetrics} />
         )}
 
         {activeTab === 'vault' && <BrandVaultModal />}
@@ -364,7 +466,7 @@ export default function Home() {
             <span>•</span>
             <span>Solo Architect: <strong className="text-slate-300">Ronak Jain</strong></span>
             <span>•</span>
-            <span>Status: <strong className="text-emerald-400">All Core Workflows Operational</strong></span>
+            <span>Status: <strong className="text-emerald-400">Hackathon MVP · Demo Data</strong></span>
           </div>
         </div>
       </footer>

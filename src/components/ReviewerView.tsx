@@ -16,9 +16,11 @@ import { generateContentHash } from '@/lib/engine/crypto-audit';
 
 interface ReviewerViewProps {
   submissions: ReviewSubmission[];
-  onApproveSubmission: (submissionId: string, sha256Hash: string, reviewerName: string) => void;
+  onApproveSubmission: (submissionId: string, sha256Hash: string, reviewerName: string, approvalMode: 'standard' | 'exception', exceptionRationale?: string) => void;
   onRequestChanges: (submissionId: string, commentText: string) => void;
   onAddComment?: (submissionId: string, commentText: string, author: string, role: 'Brand Reviewer' | 'Creator' | 'Legal Counsel') => void;
+  onResubmit: (submissionId: string, revisedText: string, creatorName: string) => void;
+  onDecideAppeal: (submissionId: string, findingId: string, decision: 'accepted' | 'rejected', rationale: string, reviewerName: string) => void;
 }
 
 export const ReviewerView: React.FC<ReviewerViewProps> = ({
@@ -26,6 +28,8 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
   onApproveSubmission,
   onRequestChanges,
   onAddComment,
+  onResubmit,
+  onDecideAppeal,
 }) => {
   const [selectedId, setSelectedId] = useState<string>(
     submissions[0]?.id || ''
@@ -36,11 +40,18 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
   const [changesModalOpen, setChangesModalOpen] = useState<boolean>(false);
   const [exceptionModalOpen, setExceptionModalOpen] = useState<boolean>(false);
   const [exceptionRationale, setExceptionRationale] = useState<string>('');
+  const [creatorRevisionText, setCreatorRevisionText] = useState<string>('');
+  const [appealRationale, setAppealRationale] = useState<string>('');
 
   const activeItem = submissions.find((s) => s.id === selectedId) || submissions[0];
 
+  const acceptedAppealIds = new Set(
+    (activeItem?.appealDecisions ?? [])
+      .filter((decision) => decision.decision === 'accepted')
+      .map((decision) => decision.findingId)
+  );
   const criticalConflicts = activeItem?.auditResult.findings.filter(
-    (f) => f.severity === 'critical' && f.verdict === 'CONFLICT'
+    (f) => f.severity === 'critical' && f.verdict !== 'VERIFIED' && !acceptedAppealIds.has(f.id)
   ) || [];
   const hasCriticalConflicts = criticalConflicts.length > 0;
 
@@ -60,7 +71,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
 
     const timestamp = new Date().toISOString();
     const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
-    onApproveSubmission(activeItem.id, hash, reviewerName);
+    onApproveSubmission(activeItem.id, hash, reviewerName, 'standard');
   };
 
   const handleApproveWithException = async () => {
@@ -79,15 +90,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
     const timestamp = new Date().toISOString();
     const hash = await generateContentHash(activeItem.currentText, reviewerName, timestamp);
 
-    if (onAddComment) {
-      onAddComment(
-        activeItem.id,
-        `[CRITICAL EXCEPTION OVERRIDE] Approved by ${reviewerName}. Rationale: ${exceptionRationale.trim()}`,
-        reviewerName,
-        'Brand Reviewer'
-      );
-    }
-    onApproveSubmission(activeItem.id, hash, reviewerName);
+    onApproveSubmission(activeItem.id, hash, reviewerName, 'exception', exceptionRationale.trim());
     setExceptionModalOpen(false);
     setExceptionRationale('');
   };
@@ -249,6 +252,11 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                     <p className="text-[10px] text-slate-500">
                       Timestamped: {activeItem.signedOffAt} • Browser-Side Content-Integrity Record Committed (SHA-256)
                     </p>
+                    {activeItem.approvalMode === 'exception' && (
+                      <div className="mt-2 rounded border border-amber-500/30 bg-amber-950/20 p-2 text-[11px] text-amber-200">
+                        <strong>Exception approval:</strong> {activeItem.exceptionRationale}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -259,10 +267,10 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                   <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                   <div className="space-y-1">
                     <h4 className="font-bold text-amber-200">
-                      Unresolved Critical Governance Conflicts Detected ({criticalConflicts.length})
+                      Unresolved Critical Governance Findings Detected ({criticalConflicts.length})
                     </h4>
                     <p className="text-amber-300/80 leading-relaxed">
-                      Standard approval is locked. This submission contains critical brand/regulatory conflicts. To sign off, the reviewer must provide an explicit exception rationale or request creator changes.
+                      Standard approval is locked. This submission contains critical unresolved brand/regulatory findings. To sign off, the reviewer must provide an explicit exception rationale or request creator changes.
                     </p>
                   </div>
                 </div>
@@ -272,7 +280,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
               {activeItem.auditResult.findings.length > 0 && (
                 <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
                   <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center justify-between">
-                    <span>Grounded Findings & Creator Appeals ({activeItem.auditResult.findings.length})</span>
+                    <span>Audit Findings & Creator Appeals ({activeItem.auditResult.findings.length})</span>
                     <span className="text-[11px] font-mono text-slate-400">Score: {activeItem.auditResult.complianceScore}/100</span>
                   </h4>
                   <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
@@ -302,6 +310,20 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                               Creator Appeal Justification:
                             </span>
                             <p className="text-indigo-200 italic">&ldquo;{f.override.rationale}&rdquo;</p>
+                            {(() => {
+                              const decision = activeItem.appealDecisions?.find((item) => item.findingId === f.id);
+                              return decision ? (
+                                <p className="text-[10px] text-cyan-200">Appeal {decision.decision} by {decision.reviewerName}: {decision.rationale}</p>
+                              ) : (
+                                <div className="space-y-2 pt-1">
+                                  <input value={appealRationale} onChange={(e) => setAppealRationale(e.target.value)} placeholder="Reviewer rationale for appeal decision" className="w-full bg-slate-950 text-slate-100 text-[11px] border border-slate-700 rounded p-2" />
+                                  <div className="flex gap-2">
+                                    <button onClick={() => { if (appealRationale.trim()) { onDecideAppeal(activeItem.id, f.id, 'accepted', appealRationale, reviewerName); setAppealRationale(''); } }} className="px-2 py-1 rounded bg-emerald-700 text-white text-[10px]">Accept Appeal</button>
+                                    <button onClick={() => { if (appealRationale.trim()) { onDecideAppeal(activeItem.id, f.id, 'rejected', appealRationale, reviewerName); setAppealRationale(''); } }} className="px-2 py-1 rounded bg-rose-700 text-white text-[10px]">Reject Appeal</button>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         )}
                       </div>
@@ -338,6 +360,27 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                   </div>
                 </div>
               </div>
+
+              {activeItem.status === 'changes_requested' && (
+                <div className="bg-slate-900 border border-amber-500/30 rounded-xl p-5 space-y-3">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-amber-300">Creator Revision & Resubmission</h4>
+                  <p className="text-xs text-slate-400">Edit the current draft in response to reviewer feedback. Resubmission creates a new version and runs a fresh audit.</p>
+                  <textarea value={creatorRevisionText || activeItem.currentText} onChange={(e) => setCreatorRevisionText(e.target.value)} rows={7} className="w-full bg-slate-950 text-slate-100 text-xs font-mono border border-slate-700 rounded-lg p-3" />
+                  <button onClick={() => { const revised = creatorRevisionText || activeItem.currentText; if (revised.trim()) { onResubmit(activeItem.id, revised, activeItem.creatorName); setCreatorRevisionText(''); } }} className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold">Resubmit New Revision</button>
+                </div>
+              )}
+
+              {activeItem.revisionHistory && activeItem.revisionHistory.length > 0 && (
+                <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">Revision History ({activeItem.revisionHistory.length})</h4>
+                  {activeItem.revisionHistory.map((revision) => (
+                    <div key={revision.version} className="flex items-center justify-between text-[11px] text-slate-400 border-b border-slate-800 pb-2">
+                      <span>Version {revision.version} · {revision.submittedBy}</span>
+                      <span>{revision.auditResult.complianceScore}/100 · {new Date(revision.submittedAt).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {/* Reviewer Comments & Discussion Thread */}
               <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
