@@ -127,6 +127,16 @@ function resolveDefaultDbPath(): string {
   if (process.env.VERIBRAND_DB_PATH) {
     return path.resolve(process.env.VERIBRAND_DB_PATH);
   }
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    const tmpDb = path.join('/tmp', 'veribrand.db');
+    if (!fs.existsSync(tmpDb)) {
+      const bundledDb = path.resolve(process.cwd(), 'data', 'veribrand.db');
+      if (fs.existsSync(bundledDb)) {
+        try { fs.copyFileSync(bundledDb, tmpDb); } catch { /* fallback to schema init */ }
+      }
+    }
+    return tmpDb;
+  }
   const cwd = process.cwd();
   if (cwd.includes(path.join('.next', 'standalone')) || cwd.endsWith('standalone')) {
     const projectRoot = path.resolve(cwd, '..', '..');
