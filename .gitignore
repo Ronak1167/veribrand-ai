@@ -35,10 +35,13 @@ yarn-error.log*
 .env*
 !.env.example
 
-# sqlite databases
+# sqlite databases & local storage
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/evidence/*
+!data/evidence/.gitkeep
+backups/
 *.db
 *.db-shm
 *.db-wal

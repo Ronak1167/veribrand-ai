@@ -162,6 +162,7 @@ export interface ReviewSubmission {
   id: string;
   title: string;
   channel: ChannelType;
+  creatorId?: string;
   creatorName: string;
   currentRevisionId?: string;
   submittedAt: string;

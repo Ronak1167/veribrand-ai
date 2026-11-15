@@ -11,17 +11,18 @@ Pre-publication brand-governance workspace built with Next.js, TypeScript, a det
 - Revisioned submissions, reviewer comments, appeal decisions, and review status stored in SQLite.
 - First-administrator bootstrap, password login, HTTP-only session cookies, and server-side role checks.
 - Server-generated revision hashes and approval hashes. Approval hash verification is available from the individual submission API.
-- Evidence **metadata** records. The current implementation does not upload, retain, parse, or independently validate source-document files.
-- A hex-color palette and contrast calculator. It does not inspect uploaded images or extract image palettes.
-- Pattern-based PII redaction. This is a best-effort helper, not comprehensive DLP or a guarantee that all sensitive information is detected.
-- A local ambiguity heatmap with seeded benchmark values; it is not a complete multi-tenant analytics service.
+- Evidence management with multipart document upload (`POST /api/evidence`), SHA-256 checksum calculation, secure disk storage, byte-level download, and formal reviewer verification/rejection (`PATCH /api/evidence/[id]`).
+- A hex-color palette and contrast calculator with WCAG AA/AAA ratio checks.
+- Enhanced PII and credential redaction (`POST /api/privacy/redact`) covering Indian phone numbers, PAN, Aadhaar, US SSN, credit cards, emails, API keys/secrets, and private internal IPs without raw snippet exposure.
+- A local ambiguity heatmap with seeded benchmark values and rule-level frequency tracking.
 
 ## Architecture
 
 - **Web application:** Next.js App Router, React, TypeScript, Tailwind CSS.
 - **Primary application engine:** TypeScript deterministic verifier used by the Next.js application.
 - **Optional Python service:** FastAPI implementation of the verifier. It is a separate service and is not the authoritative persistence/workflow backend for the Next.js UI.
-- **Persistence:** Node built-in `node:sqlite` database at `data/veribrand.db`, using SQLite WAL mode.
+- **Persistence:** Node built-in `node:sqlite` database at `data/veribrand.db`, using SQLite WAL mode with ACID transaction guarantees.
+- **Production Migration:** Complete PostgreSQL DDL provided in `schema.postgres.sql` for horizontal multi-instance scaling on PostgreSQL 14+, Amazon RDS/Aurora, Cloud SQL, Supabase, or Neon.
 - **Authentication:** Server-side SQLite sessions, HttpOnly cookies, per-account random-salt scrypt password hashes, and role checks on protected routes.
 
 The SQLite database and its containing directory must be on persistent writable storage. Do not use ephemeral serverless filesystem storage for a multi-instance deployment.
@@ -117,7 +118,9 @@ The Python service is independent of the Next.js SQLite workflow. Its API and da
 | `POST /api/submissions/:id/resubmit` | Owning creator/admin |
 | `POST /api/submissions/:id/comments` | Authenticated; creator ownership is enforced |
 | `GET /api/evidence` | Authenticated |
-| `POST /api/evidence` | Reviewer/admin; stores metadata only |
+| `POST /api/evidence` | Authenticated; multipart upload (10 MB max) with SHA-256 verification |
+| `GET /api/evidence/:id` | Authenticated; metadata or binary document download (`?download=1`) |
+| `PATCH /api/evidence/:id` | Reviewer/admin; verify or reject evidence records with reviewer notes |
 | `GET /api/audit-trail` | Reviewer/admin |
 | `POST /api/privacy/redact` | Authenticated |
 | `POST /api/vision/palette` | Authenticated |

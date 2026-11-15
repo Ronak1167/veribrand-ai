@@ -17,6 +17,8 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/*.db-journal
+data/evidence/*
+backups/
 
 # Python caches
 __pycache__

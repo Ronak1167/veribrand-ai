@@ -1,0 +1,51 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: veribrand-ai:latest
+    container_name: veribrand-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+      - VERIBRAND_BOOTSTRAP_TOKEN=${VERIBRAND_BOOTSTRAP_TOKEN:-}
+      - PYTHON_ENGINE_URL=http://python-verifier:8000
+      - VERIBRAND_PYTHON_API_KEY=${VERIBRAND_PYTHON_API_KEY:-}
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/vault"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      python-verifier:
+        condition: service_started
+        required: false
+
+  python-verifier:
+    image: python:3.11-slim
+    container_name: veribrand-python
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    working_dir: /app/backend
+    volumes:
+      - ./backend:/app/backend
+    environment:
+      - VERIBRAND_PYTHON_HOST=0.0.0.0
+      - VERIBRAND_PYTHON_PORT=8000
+      - VERIBRAND_PYTHON_API_KEY=${VERIBRAND_PYTHON_API_KEY:-}
+    command: >
+      sh -c "pip install --no-cache-dir fastapi uvicorn pydantic && python main.py"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

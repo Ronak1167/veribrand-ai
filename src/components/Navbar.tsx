@@ -35,11 +35,11 @@ export const Navbar: React.FC<NavbarProps> = ({
                 <span className="font-extrabold text-lg tracking-tight text-slate-900">
                   VeriBrand AI
                 </span>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <span className="hidden sm:inline-block px-2 py-0.5 text-xs font-semibold rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
                   Round 2 Build
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-medium">
+              <p className="hidden sm:block text-[11px] text-slate-500 font-medium">
                 CodeNova India 2026 • Inkloom AI Track • <span className="text-indigo-600 font-semibold">Team Deccans</span>
               </p>
             </div>
@@ -115,7 +115,7 @@ export const Navbar: React.FC<NavbarProps> = ({
               }}
               defaultValue=""
               aria-label="Load demo scenario for testing"
-              className="bg-white text-slate-800 text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium shadow-xs"
+              className="hidden md:block bg-white text-slate-800 text-xs border border-slate-300 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium shadow-xs"
             >
               <option value="" disabled>Load Scenario...</option>
               <option value="draft-broken-marketing">Scenario 1: Broken High-Risk (6 Flags)</option>

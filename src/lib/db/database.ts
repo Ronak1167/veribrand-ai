@@ -21,6 +21,7 @@ interface SubmissionRow {
   id: string;
   title: string;
   channel: string;
+  creator_id?: string | null;
   creator_name: string;
   current_revision_id: string;
   status: 'pending_review' | 'changes_requested' | 'approved';
@@ -93,10 +94,25 @@ interface EvidenceRow {
   status: string;
   uploaded_by: string;
   uploaded_at: string;
+  storage_path?: string | null;
+  reviewed_by?: string | null;
+  review_notes?: string | null;
+  reviewed_at?: string | null;
 }
 
-const DEFAULT_DB_DIR = path.resolve(process.cwd(), 'data');
-const DB_PATH = path.resolve(/*turbopackIgnore: true*/ process.env.VERIBRAND_DB_PATH || path.join(DEFAULT_DB_DIR, 'veribrand.db'));
+function resolveDefaultDbPath(): string {
+  if (process.env.VERIBRAND_DB_PATH) {
+    return path.resolve(process.env.VERIBRAND_DB_PATH);
+  }
+  const cwd = process.cwd();
+  if (cwd.includes(path.join('.next', 'standalone')) || cwd.endsWith('standalone')) {
+    const projectRoot = path.resolve(cwd, '..', '..');
+    return path.join(projectRoot, 'data', 'veribrand.db');
+  }
+  return path.resolve(cwd, 'data', 'veribrand.db');
+}
+
+const DB_PATH = resolveDefaultDbPath();
 const DB_DIR = path.dirname(DB_PATH);
 let dbInstance: DatabaseSync | null = null;
 
@@ -226,6 +242,11 @@ export function getDatabase(): DatabaseSync {
     CREATE UNIQUE INDEX IF NOT EXISTS users_email_case_insensitive
       ON users(lower(email));
   `);
+
+  try { db.exec('ALTER TABLE evidence_documents ADD COLUMN storage_path TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE evidence_documents ADD COLUMN reviewed_by TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE evidence_documents ADD COLUMN review_notes TEXT;'); } catch {}
+  try { db.exec('ALTER TABLE evidence_documents ADD COLUMN reviewed_at TEXT;'); } catch {}
 
   // No demo users or fabricated evidence are seeded. Accounts must be explicitly bootstrapped.
   dbInstance = db;
@@ -392,6 +413,7 @@ function assembleSubmission(r: SubmissionRow): ReviewSubmission {
     id: r.id,
     title: r.title,
     channel: r.channel as ChannelType,
+    creatorId: r.creator_id || undefined,
     creatorName: r.creator_name,
     currentRevisionId: r.current_revision_id,
     submittedAt: r.created_at,
@@ -797,7 +819,8 @@ export function addEvidenceDocument(params: {
   sha256Checksum?: string;
   status?: string;
   uploadedBy: string;
-}): EvidenceProvenance {
+  storagePath?: string;
+}): EvidenceProvenance & { id: string; sha256Checksum: string; fileSizeBytes: number; mimeType: string } {
   const db = getDatabase();
   const id = `EVID-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6)}`;
   const now = new Date().toISOString();
@@ -805,11 +828,12 @@ export function addEvidenceDocument(params: {
   const size = params.fileSizeBytes ?? 0;
   const hash = params.sha256Checksum || '';
   const status = params.status || 'pending';
+  const storagePath = params.storagePath || null;
 
   db.prepare(`
     INSERT INTO evidence_documents (
-      id, metric_id, document_name, section_citation, mime_type, file_size_bytes, sha256_checksum, status, uploaded_by, uploaded_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      id, metric_id, document_name, section_citation, mime_type, file_size_bytes, sha256_checksum, status, uploaded_by, uploaded_at, storage_path
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
   `).run(
     id,
     params.metricId,
@@ -820,7 +844,8 @@ export function addEvidenceDocument(params: {
     hash,
     status,
     params.uploadedBy,
-    now
+    now,
+    storagePath
   );
 
   logAuditEvent(
@@ -829,17 +854,88 @@ export function addEvidenceDocument(params: {
     'compliance',
     null,
     null,
-    { documentId: id, metricId: params.metricId, documentName: params.documentName }
+    { documentId: id, metricId: params.metricId, documentName: params.documentName, sha256Checksum: hash }
   );
 
   return {
+    id,
     metricId: params.metricId,
     metricName: params.documentName,
     approvedValue: 'Not specified',
     sourceDocument: params.documentName,
     sectionCitation: params.sectionCitation,
     validityPeriod: 'Not specified',
-    lastAuditedDate: 'Not audited',
+    lastAuditedDate: now,
     status: status === 'outdated' ? 'outdated' : status === 'verified' ? 'active' : 'pending',
+    sha256Checksum: hash,
+    fileSizeBytes: size,
+    mimeType: mime,
   };
+}
+
+export function getEvidenceById(id: string): (EvidenceProvenance & {
+  id: string;
+  documentName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  sha256Checksum: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  storagePath: string | null;
+  reviewedBy: string | null;
+  reviewNotes: string | null;
+  reviewedAt: string | null;
+}) | null {
+  const db = getDatabase();
+  const r = db.prepare('SELECT * FROM evidence_documents WHERE id = ?;').get(id) as EvidenceRow | undefined;
+  if (!r) return null;
+  return {
+    id: r.id,
+    metricId: r.metric_id,
+    metricName: r.document_name,
+    documentName: r.document_name,
+    approvedValue: 'Not specified',
+    sourceDocument: r.document_name,
+    sectionCitation: r.section_citation,
+    validityPeriod: 'Not specified',
+    lastAuditedDate: r.uploaded_at,
+    mimeType: r.mime_type,
+    fileSizeBytes: r.file_size_bytes,
+    sha256Checksum: r.sha256_checksum,
+    status: r.status === 'outdated' ? 'outdated' : r.status === 'verified' ? 'active' : 'pending',
+    uploadedBy: r.uploaded_by,
+    uploadedAt: r.uploaded_at,
+    storagePath: r.storage_path || null,
+    reviewedBy: r.reviewed_by || null,
+    reviewNotes: r.review_notes || null,
+    reviewedAt: r.reviewed_at || null,
+  };
+}
+
+export function updateEvidenceStatus(params: {
+  id: string;
+  status: 'verified' | 'rejected';
+  reviewerId: string;
+  notes?: string;
+}): boolean {
+  const db = getDatabase();
+  const now = new Date().toISOString();
+  const result = db.prepare(`
+    UPDATE evidence_documents
+    SET status = ?, reviewed_by = ?, review_notes = ?, reviewed_at = ?
+    WHERE id = ?;
+  `).run(params.status, params.reviewerId, params.notes || null, now, params.id);
+
+  if (result.changes > 0) {
+    logAuditEvent(
+      'EVIDENCE_STATUS_UPDATED',
+      params.reviewerId,
+      'reviewer',
+      null,
+      null,
+      { evidenceId: params.id, newStatus: params.status, notes: params.notes }
+    );
+    return true;
+  }
+  return false;
 }

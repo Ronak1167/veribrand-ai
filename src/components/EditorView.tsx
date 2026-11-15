@@ -104,7 +104,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
       )}
       {/* LEFT COLUMN: Editor & Controls */}
-      <div className="lg:col-span-7 flex flex-col space-y-4">
+      <div className="lg:col-span-7 flex flex-col space-y-4 min-w-0">
         {/* Channel Selection & Stats Bar */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center space-x-2">
@@ -191,7 +191,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
       </div>
 
       {/* RIGHT COLUMN: Compliance Dashboard & Findings Sidebar */}
-      <div className="lg:col-span-5 flex flex-col space-y-4">
+      <div className="lg:col-span-5 flex flex-col space-y-4 min-w-0">
         {/* Compliance Score Gauge & Two-Tier Latency Benchmark */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
@@ -254,7 +254,7 @@ export const EditorView: React.FC<EditorViewProps> = ({
         </div>
 
         {/* Filter Pills */}
-        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs">
+        <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 text-xs max-w-full">
           {[
             { id: 'ALL', label: 'All', count: auditResult.findings.length },
             { id: 'CONFLICT', label: 'Conflicts', count: auditResult.claimsConflictedCount, color: 'text-rose-600' },

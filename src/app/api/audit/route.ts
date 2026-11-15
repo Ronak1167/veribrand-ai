@@ -64,6 +64,30 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // If external Python verification service is configured, query it with server-side API key
+    if (process.env.PYTHON_ENGINE_URL && process.env.VERIBRAND_PYTHON_API_KEY) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000);
+        const pyResp = await fetch(`${process.env.PYTHON_ENGINE_URL.replace(/\/$/, '')}/api/audit`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': process.env.VERIBRAND_PYTHON_API_KEY,
+          },
+          body: JSON.stringify({ text, channel }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+        if (pyResp.ok) {
+          const pyResult = await pyResp.json();
+          return NextResponse.json(pyResult, { status: 200 });
+        }
+      } catch {
+        // Fall back gracefully to native TypeScript engine if Python service is unreachable
+      }
+    }
+
     const result = auditContent(text, channel);
     return NextResponse.json(result, { status: 200 });
   } catch (err: unknown) {

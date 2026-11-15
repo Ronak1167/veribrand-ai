@@ -16,6 +16,26 @@ CREATOR_PASSWORD = os.environ.get("VERIBRAND_TEST_CREATOR_PASSWORD")
 REVIEWER_EMAIL = os.environ.get("VERIBRAND_TEST_REVIEWER_EMAIL")
 REVIEWER_PASSWORD = os.environ.get("VERIBRAND_TEST_REVIEWER_PASSWORD")
 
+if not (CREATOR_EMAIL and CREATOR_PASSWORD and REVIEWER_EMAIL and REVIEWER_PASSWORD):
+    test_env_path = os.path.join(os.path.dirname(__file__), ".env.test.local")
+    if os.path.exists(test_env_path):
+        with open(test_env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                k = k.strip()
+                v = v.strip().strip("'\"")
+                if k == "VERIBRAND_TEST_CREATOR_EMAIL" and not CREATOR_EMAIL:
+                    CREATOR_EMAIL = v
+                elif k == "VERIBRAND_TEST_CREATOR_PASSWORD" and not CREATOR_PASSWORD:
+                    CREATOR_PASSWORD = v
+                elif k == "VERIBRAND_TEST_REVIEWER_EMAIL" and not REVIEWER_EMAIL:
+                    REVIEWER_EMAIL = v
+                elif k == "VERIBRAND_TEST_REVIEWER_PASSWORD" and not REVIEWER_PASSWORD:
+                    REVIEWER_PASSWORD = v
+
 
 class ApiClient:
     def __init__(self):
@@ -24,6 +44,9 @@ class ApiClient:
 
     def request(self, method, path, body=None):
         headers = {}
+        cookie_header = "; ".join(f"{c.name}={c.value}" for c in self.cookies)
+        if cookie_header:
+            headers["Cookie"] = cookie_header
         data = None
         if body is not None:
             headers["Content-Type"] = "application/json"
