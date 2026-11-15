@@ -1,15 +1,28 @@
 # VeriBrand AI — Cross-Engine Differential Parity Test Suite
-# Compares TypeScript Next.js Engine (/api/audit) against Python Engine (backend/engine.py)
-# Verifies architectural, behavioral, and finding-level parity across a shared corpus of drafts
+# Compares the deterministic TypeScript engine against Python backend/engine.py directly.
+# Tenant-specific approved evidence is intentionally tested separately through authenticated API workflows.
 
-import urllib.request
 import json
-import sys
 import os
+import subprocess
+import sys
 
 # Ensure backend directory is in path for Python engine import
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'backend'))
 from engine import audit_document, VERIFIED_METRICS as PY_METRICS, BRAND_RULES as PY_RULES
+
+# Compare the deterministic engines directly. The HTTP audit endpoint adds
+# tenant-specific approved evidence and is intentionally not a static parity oracle.
+TS_ENGINE = subprocess.Popen(
+    ["node", "node_modules/tsx/dist/cli.mjs", "scripts/ts-audit-stdin.ts"],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=sys.stderr,
+    text=True,
+    encoding="utf-8",
+)
+if TS_ENGINE.stdin is None or TS_ENGINE.stdout is None:
+    raise RuntimeError("Unable to start the TypeScript audit harness.")
 
 SHARED_CORPUS = [
     {
@@ -119,14 +132,15 @@ SHARED_CORPUS = [
 ]
 
 def query_typescript_api(text: str, channel: str):
-    url = "http://localhost:3000/api/audit"
-    req = urllib.request.Request(
-        url,
-        data=json.dumps({"text": text, "channel": channel}).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
-    )
-    with urllib.request.urlopen(req) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    TS_ENGINE.stdin.write(json.dumps({"text": text, "channel": channel}) + "\n")
+    TS_ENGINE.stdin.flush()
+    line = TS_ENGINE.stdout.readline()
+    if not line:
+        raise RuntimeError("TypeScript audit harness exited unexpectedly.")
+    result = json.loads(line)
+    if "error" in result:
+        raise RuntimeError(result["error"])
+    return result
 
 def run_differential_suite():
     print("======================================================================")
@@ -212,4 +226,9 @@ def run_differential_suite():
     print("======================================================================")
 
 if __name__ == "__main__":
-    run_differential_suite()
+    try:
+        run_differential_suite()
+    finally:
+        if TS_ENGINE.stdin and not TS_ENGINE.stdin.closed:
+            TS_ENGINE.stdin.close()
+        TS_ENGINE.wait(timeout=10)

@@ -19,7 +19,23 @@ export type ClaimVerdict =
   | 'VERIFIED'
   | 'CONFLICT'
   | 'UNVERIFIED'
-  | 'SUGGESTION';
+  | 'SUGGESTION'
+  | 'REVIEW_REQUIRED'
+  | 'NOT_APPLICABLE';
+
+export type ClaimType =
+  | 'numerical'
+  | 'percentages'
+  | 'financial'
+  | 'growth'
+  | 'comparative'
+  | 'performance'
+  | 'product_capability'
+  | 'time_bound'
+  | 'geographic'
+  | 'superlatives'
+  | 'guarantees'
+  | 'legal_disclaimers';
 
 export type ReasonCode =
   | 'OUTDATED'
@@ -40,6 +56,25 @@ export interface EvidenceProvenance {
   validityPeriod: string;
   lastAuditedDate: string;
   status: 'active' | 'outdated' | 'pending' | 'unverified';
+  organizationId?: string;
+  provenanceState?: ProvenanceState;
+  sourceUrl?: string;
+  sourcePublisher?: string;
+  verificationMethod?: string;
+}
+
+export interface EvidenceDocument {
+  id: string;
+  documentName: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  sha256Checksum: string;
+  status: string;
+  createdAt: string;
+  organizationId?: string;
+  sourceUrl?: string;
+  sourcePublisher?: string;
+  verificationMethod?: string;
 }
 
 export interface RewriteAlternatives {
@@ -57,6 +92,7 @@ export interface CreatorOverride {
 export interface LintFinding {
   id: string;
   category: FindingCategory;
+  claimType?: ClaimType;
   verdict: ClaimVerdict;
   reasonCode?: ReasonCode;
   ruleId?: string;
@@ -85,6 +121,8 @@ export interface AuditResult {
   claimsConflictedCount: number;
   claimsUnverifiedCount: number;
   timestamp: string;
+  verificationStatus?: 'BLOCKED' | 'REVIEW_REQUIRED' | 'NO_DETECTED_ISSUES';
+  verificationScope?: string;
 }
 
 export interface VerifiedMetric {
@@ -111,6 +149,11 @@ export interface BrandRule {
   forbiddenPatterns: string[];
   approvedAlternative: string;
   citation: string;
+  organizationId?: string;
+  version?: number;
+  status?: 'draft' | 'active' | 'inactive' | 'archived';
+  effectiveFrom?: string;
+  effectiveUntil?: string;
 }
 
 export type UserRole = 'creator' | 'reviewer' | 'admin';
@@ -127,6 +170,7 @@ export interface UserSession {
   token: string;
   user: User;
   expiresAt: string;
+  activeOrganizationId?: string;
 }
 
 export interface ReviewComment {
@@ -160,6 +204,7 @@ export interface AppealDecision {
 
 export interface ReviewSubmission {
   id: string;
+  organizationId?: string;
   title: string;
   channel: ChannelType;
   creatorId?: string;
@@ -183,6 +228,7 @@ export interface ReviewSubmission {
 
 export interface AuditTrailEntry {
   id: number;
+  organizationId?: string;
   eventType: string;
   actorId: string;
   actorRole: string;
@@ -203,4 +249,134 @@ export interface AmbiguityMetric {
   confusionScore: number; // 0 - 100
   status: 'clear' | 'monitor' | 'ambiguous';
   recommendedClarification: string;
+}
+
+// Multi-Tenancy Domain Types
+export type OrganizationRole = 'owner' | 'admin' | 'reviewer' | 'creator' | 'readonly';
+
+export interface Organization {
+  id: string;
+  name: string;
+  slug: string;
+  logoUrl?: string;
+  brandName?: string;
+  settings?: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganizationMembership {
+  id: string;
+  organizationId: string;
+  userId: string;
+  role: OrganizationRole;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrganizationInvitation {
+  id: string;
+  organizationId: string;
+  email: string;
+  role: OrganizationRole;
+  token: string;
+  invitedBy: string;
+  expiresAt: string;
+  status: 'pending' | 'accepted' | 'revoked';
+  createdAt: string;
+}
+
+export type ProvenanceState =
+  | 'uploaded'
+  | 'extracted'
+  | 'pending'
+  | 'verified'
+  | 'rejected'
+  | 'superseded'
+  | 'expired';
+
+export interface EvidenceCandidateFact {
+  id: string;
+  organizationId: string;
+  evidenceId: string;
+  metricId?: string;
+  claimType: string;
+  extractedClaim: string;
+  extractedValue: string;
+  unit?: string;
+  pageNumber?: number;
+  textExcerpt: string;
+  confidence: number;
+  extractionMethod: 'pdf_text' | 'pdf_ocr' | 'image_ocr' | 'ocr_image' | 'manual' | 'heuristic';
+  status: 'unverified' | 'approved' | 'rejected';
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  reviewNotes?: string | null;
+  validFrom?: string | null;
+  validUntil?: string | null;
+  createdAt: string;
+}
+
+export interface BrandRuleVersion {
+  id: string;
+  ruleId: string;
+  organizationId: string;
+  version: number;
+  category: FindingCategory;
+  title: string;
+  description: string;
+  authorityLevel: 1 | 2 | 3;
+  severity: Severity;
+  forbiddenPatterns: string[];
+  approvedAlternative: string;
+  citation: string;
+  status: 'draft' | 'active' | 'inactive' | 'archived';
+  changeRationale?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface BrandAsset {
+  id: string;
+  organizationId: string;
+  name: string;
+  assetType: 'logo_primary' | 'logo_secondary' | 'logo_monochrome' | 'logo_icon' | 'palette_swatch' | 'marketing_image' | 'font';
+  storagePath: string;
+  mimeType: string;
+  fileSizeBytes: number;
+  sha256Checksum: string;
+  width?: number;
+  height?: number;
+  aspectRatio?: string;
+  metadata?: Record<string, unknown>;
+  uploadedBy: string;
+  createdAt: string;
+}
+
+export interface OrganizationAnalytics {
+  organizationId: string;
+  totalSubmissions: number;
+  submissionsByStatus: {
+    pending_review: number;
+    changes_requested: number;
+    approved: number;
+  };
+  claimsAuditedCount: number;
+  claimsByVerdict: {
+    VERIFIED: number;
+    CONFLICT: number;
+    UNVERIFIED: number;
+    SUGGESTION: number;
+  };
+  ruleViolationsRanking: Array<{
+    ruleId: string;
+    title: string;
+    category: string;
+    count: number;
+  }>;
+  appealResolutionRate: number;
+  averageTurnaroundMinutes: number;
+  evidenceActiveCount: number;
+  evidenceExpiredCount: number;
+  period: string;
 }

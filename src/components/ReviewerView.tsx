@@ -54,7 +54,7 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
       .map((decision) => decision.findingId)
   );
   const criticalConflicts = activeItem?.auditResult.findings.filter(
-    (f) => f.severity === 'critical' && f.verdict !== 'VERIFIED' && !acceptedAppealIds.has(f.id)
+    (f) => ((f.category === 'claim_verification' && f.verdict !== 'VERIFIED') || (f.severity === 'critical' && f.verdict !== 'VERIFIED')) && !acceptedAppealIds.has(f.id)
   ) || [];
   const hasCriticalConflicts = criticalConflicts.length > 0;
 
@@ -275,10 +275,10 @@ export const ReviewerView: React.FC<ReviewerViewProps> = ({
                   <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
                   <div className="space-y-1">
                     <h4 className="font-bold text-amber-900">
-                      Unresolved Critical Governance Findings Detected ({criticalConflicts.length})
+                      Unresolved Claims / Critical Governance Findings Detected ({criticalConflicts.length})
                     </h4>
                     <p className="text-amber-800 leading-relaxed">
-                      Standard approval is locked. This submission contains critical unresolved brand/regulatory findings. To sign off, the reviewer must provide an explicit exception rationale or request creator changes.
+                      Standard approval is locked. This submission contains claims without approved evidence or unresolved critical brand-rule findings. To sign off, the reviewer must provide an explicit exception rationale or request creator changes.
                     </p>
                   </div>
                 </div>

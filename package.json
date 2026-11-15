@@ -2,11 +2,21 @@
   "name": "veribrand-ai",
   "version": "0.1.0",
   "private": true,
+  "imports": {
+    "@/*": "./src/*"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build && node scripts/prepare-standalone.mjs",
     "start": "node .next/standalone/server.js",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:adversarial": "python test_adversarial.py",
+    "test:differential": "python test_differential.py",
+    "test:boundary": "python test_boundary.py",
+    "test:api-security": "node scripts/test-api-security-remediations.mjs",
+    "test:visual-metadata": "node scripts/test-visual-metadata-rejection.mjs",
+    "test:visual-upload": "node scripts/test-visual-image-upload.mjs",
+    "test:sqlite-recovery": "node scripts/test-sqlite-backup-restore.mjs"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -14,6 +24,7 @@
     "framer-motion": "^14.14.0",
     "lucide-react": "^1.72.0",
     "next": "16.4.6",
+    "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "tailwind-merge": "^3.7.0"
@@ -22,12 +33,14 @@
     "@tailwindcss/turbopack": "4.3.3",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "playwright": "^1.65.0",
     "tailwindcss": "4.3.3",
+    "tsx": "4.20.6",
     "typescript": "^5"
   },
   "overrides": {

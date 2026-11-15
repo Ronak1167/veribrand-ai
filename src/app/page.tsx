@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Navbar } from '@/components/Navbar';
 import { LoginScreen } from '@/components/LoginScreen';
 import { AdminUsersPanel } from '@/components/AdminUsersPanel';
@@ -8,32 +8,31 @@ import { EditorView } from '@/components/EditorView';
 import { ReviewerView } from '@/components/ReviewerView';
 import { AmbiguityHeatmapView } from '@/components/AmbiguityHeatmapView';
 import { BrandVaultModal } from '@/components/BrandVaultModal';
+import { EvidenceView } from '@/components/EvidenceView';
 import { auditContent } from '@/lib/engine/verifier';
 import {
   ChannelType,
   LintFinding,
   ReviewSubmission,
-  AmbiguityMetric,
   User,
 } from '@/types';
-import {
-  PRESET_DRAFTS,
-  INITIAL_AMBIGUITY_METRICS,
-} from '@/lib/engine/brand-vault-data';
+import { PRESET_DRAFTS } from '@/lib/engine/brand-vault-data';
 
 export default function Home() {
-  const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'vault'>('editor');
+  const [activeTab, setActiveTab] = useState<'editor' | 'reviewer' | 'heatmap' | 'evidence' | 'vault'>('editor');
   const [channel, setChannel] = useState<ChannelType>('linkedin');
 
   // Client hydration safe state initialization matching SSR
   const [content, setContent] = useState<string>(PRESET_DRAFTS[0].content);
-  const [ambiguityMetrics, setAmbiguityMetrics] = useState<AmbiguityMetric[]>(INITIAL_AMBIGUITY_METRICS);
   const [submissions, setSubmissions] = useState<ReviewSubmission[]>([]);
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
   const [rewriteNotice, setRewriteNotice] = useState<string | null>(null);
 
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [organizations, setOrganizations] = useState<Array<{ id: string; name: string; slug: string; role: string }>>([]);
+  const [activeOrgId, setActiveOrgId] = useState<string>('ORG-DEFAULT');
+  const [activeRole, setActiveRole] = useState<string>('creator');
 
   // Restore only non-authoritative editor preferences locally; submissions and decisions come from SQLite.
   useEffect(() => {
@@ -42,8 +41,6 @@ export default function Home() {
       try {
         const saved = localStorage.getItem('veribrand_editor_content_v2');
         if (saved) setContent(saved);
-        const savedMetrics = localStorage.getItem('veribrand_ambiguity_metrics_v2');
-        if (savedMetrics) setAmbiguityMetrics(JSON.parse(savedMetrics));
       } catch { /* Ignore corrupt local preferences. */ }
       try {
         const response = await fetch('/api/auth/me');
@@ -51,6 +48,9 @@ export default function Home() {
         const data = await response.json();
         if (!cancelled && data.authenticated && data.user) {
           setCurrentUser(data.user);
+          if (Array.isArray(data.organizations)) setOrganizations(data.organizations);
+          if (data.activeOrganizationId) setActiveOrgId(data.activeOrganizationId);
+          if (data.activeRole) setActiveRole(data.activeRole);
           const list = await fetch('/api/submissions');
           const payload = await list.json();
           if (!list.ok) throw new Error(payload.error || 'Unable to load submissions.');
@@ -67,12 +67,48 @@ export default function Home() {
   }, []);
 
   const handleAuthenticated = async (user: User) => {
-    setCurrentUser(user);
     setAuthError(null);
-    const response = await fetch('/api/submissions');
-    const data = await response.json();
-    if (!response.ok) { setAuthError(data.error || 'Unable to load submissions.'); return; }
-    setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
+    try {
+      // Login returns the user identity, while /api/auth/me is the authoritative
+      // source for the active tenant, organization memberships, and effective role.
+      const meResponse = await fetch('/api/auth/me', { cache: 'no-store' });
+      const me = await meResponse.json();
+      if (!meResponse.ok || !me.authenticated || !me.user) {
+        throw new Error(me.error || 'Unable to restore the authenticated session.');
+      }
+      setCurrentUser(me.user || user);
+      setOrganizations(Array.isArray(me.organizations) ? me.organizations : []);
+      if (me.activeOrganizationId) setActiveOrgId(me.activeOrganizationId);
+      if (me.activeRole) setActiveRole(me.activeRole);
+
+      const response = await fetch('/api/submissions', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Unable to load submissions.');
+      setSubmissions(Array.isArray(data.submissions) ? data.submissions : []);
+    } catch (error) {
+      setCurrentUser(null);
+      setOrganizations([]);
+      setAuthError(error instanceof Error ? error.message : 'Unable to complete sign-in.');
+    }
+  };
+
+  const handleSwitchOrg = async (orgId: string) => {
+    try {
+      const res = await fetch('/api/organizations/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ organizationId: orgId }),
+      });
+      if (res.ok) {
+        setActiveOrgId(orgId);
+        const meRes = await fetch('/api/auth/me');
+        const meData = await meRes.json();
+        if (meData.activeRole) setActiveRole(meData.activeRole);
+        const list = await fetch('/api/submissions');
+        const payload = await list.json();
+        setSubmissions(Array.isArray(payload.submissions) ? payload.submissions : []);
+      }
+    } catch {}
   };
 
   const handleLogout = async () => {
@@ -85,45 +121,31 @@ export default function Home() {
   useEffect(() => {
     if (!isHydrated) return;
     try {
-      localStorage.setItem('veribrand_ambiguity_metrics_v2', JSON.stringify(ambiguityMetrics));
-    } catch {}
-  }, [ambiguityMetrics, isHydrated]);
-
-  useEffect(() => {
-    if (!isHydrated) return;
-    try {
       localStorage.setItem('veribrand_editor_content_v2', content);
     } catch {}
   }, [content, isHydrated]);
 
-  // Compute live audit in real time
-  const auditResult = useMemo(() => {
-    return auditContent(content, channel);
-  }, [content, channel]);
-
-  const getHeatmapRuleId = (finding: LintFinding): string | undefined => {
-    if (finding.ruleId) return finding.ruleId;
-    const metricId = finding.evidence?.metricId;
-    if (!metricId) return undefined;
-    if (metricId === 'MTR-007') return 'RULE-PRICE-07';
-    if (['MTR-001', 'MTR-002', 'MTR-003', 'MTR-004', 'MTR-005', 'MTR-006', 'MTR-008'].includes(metricId)) return 'RULE-CLAIM-03';
-    return undefined;
-  };
-
-  // Display seeded benchmark totals plus findings from the current live audit.
-  const displayedAmbiguityMetrics = useMemo(() => ambiguityMetrics.map((metric) => {
-    const liveTriggers = auditResult.findings.filter((finding) =>
-      getHeatmapRuleId(finding) === metric.ruleId
-    ).length;
-    const totalTriggers = metric.totalTriggers + liveTriggers;
-    return {
-      ...metric,
-      totalTriggers,
-      overrideRatePct: totalTriggers > 0
-        ? Math.round((metric.overrideCount / totalTriggers) * 1000) / 10
-        : 0,
+  // The server is authoritative: browser previews must use the same evidence-grounded engine as submissions.
+  const [auditResult, setAuditResult] = useState(() => auditContent(content, channel));
+  useEffect(() => {
+    if (!currentUser) return;
+    const controller = new AbortController();
+    const run = async () => {
+      try {
+        const response = await fetch('/api/audit', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: content, channel }), signal: controller.signal,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Unable to run authoritative audit.');
+        if (!controller.signal.aborted) setAuditResult(data);
+      } catch (error) {
+        if (!controller.signal.aborted) setRewriteNotice(error instanceof Error ? error.message : 'Audit service unavailable.');
+      }
     };
-  }), [ambiguityMetrics, auditResult]);
+    void run();
+    return () => controller.abort();
+  }, [content, channel, currentUser]);
 
   // Handle Loading Preset Demo Scenarios
   const handleSelectPreset = (presetId: string) => {
@@ -278,7 +300,7 @@ export default function Home() {
   if (!currentUser) return <LoginScreen onAuthenticated={handleAuthenticated} />;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-50 text-slate-900 flex flex-col font-sans overflow-x-clip">
       {/* Top Navigation */}
       <Navbar
         activeTab={activeTab}
@@ -287,6 +309,10 @@ export default function Home() {
         onSelectPreset={handleSelectPreset}
         currentUser={currentUser}
         onLogout={handleLogout}
+        organizations={organizations}
+        activeOrgId={activeOrgId}
+        activeRole={activeRole}
+        onSwitchOrg={handleSwitchOrg}
       />
 
       {/* Main Content Area */}
@@ -319,10 +345,12 @@ export default function Home() {
         )}
 
         {activeTab === 'heatmap' && (
-          <AmbiguityHeatmapView metrics={displayedAmbiguityMetrics} />
+          <AmbiguityHeatmapView />
         )}
 
-        {activeTab === 'vault' && <><BrandVaultModal />{currentUser.role === 'admin' && <AdminUsersPanel />}</>}
+        {activeTab === 'evidence' && <EvidenceView currentUser={currentUser} submissions={submissions} />}
+
+        {activeTab === 'vault' && <><BrandVaultModal currentUser={currentUser} />{currentUser.role === 'admin' && <AdminUsersPanel />}</>}
       </main>
 
       {/* Global Footer with Hackathon Credentials & Tech Stack Details */}

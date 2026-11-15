@@ -1,4 +1,4 @@
-// VeriBrand AI — Authenticated UI, Viewport & Accessibility Smoke Test Suite
+// VeriBrand AI — Authenticated UI & Responsive Viewport Smoke Test Suite
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,7 +24,7 @@ const reviewerEmail = creds.VERIBRAND_TEST_REVIEWER_EMAIL;
 const reviewerPassword = creds.VERIBRAND_TEST_REVIEWER_PASSWORD;
 
 console.log('================================================================');
-console.log('  VERIBRAND AI — COMPREHENSIVE UI VIEWPORTS & A11Y AUDIT        ');
+console.log('  VERIBRAND AI — AUTHENTICATED UI & RESPONSIVE VIEWPORT SMOKE TEST        ');
 console.log('================================================================');
 
 const browser = await chromium.launch({ channel: 'msedge', headless: true });
@@ -38,6 +38,12 @@ async function verifyPageResponsiveness(page, label) {
     scrollWidth: document.documentElement.scrollWidth,
   }));
   if (layout.scrollWidth > layout.width + 2) {
+    const culprits = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('*'))
+        .filter(el => el.getBoundingClientRect().right > document.documentElement.clientWidth + 2)
+        .map(el => ({ tag: el.tagName, className: String(el.className).slice(0, 80), right: el.getBoundingClientRect().right, text: el.innerText ? el.innerText.slice(0, 30) : '' }));
+    });
+    console.error(`[${label}] Culprits:`, culprits);
     throw new Error(`[${label}] Desktop layout overflows: ${JSON.stringify(layout)}`);
   }
 
@@ -90,10 +96,15 @@ try {
   await adminPage.getByLabel(/password/i).fill(adminPassword);
   await adminPage.getByRole('button', { name: /sign in/i }).click();
   await adminPage.getByRole('textbox', { name: 'Content Draft Editor' }).waitFor();
+  await adminPage.setViewportSize({ width: 1440, height: 900 });
   await adminPage.click('button:has-text("Brand Vault")');
-  await adminPage.waitForSelector('text=Seeded Brand Vault (Demo)');
+  await adminPage.waitForSelector('text=Brand Vault & Governance Studio');
   await adminPage.waitForSelector('text=User & role management');
   await verifyPageResponsiveness(adminPage, 'Admin Panel & Vault');
+  await adminPage.setViewportSize({ width: 1440, height: 900 });
+  await adminPage.locator('nav').first().getByRole('button', { name: 'Evidence' }).click();
+  await adminPage.waitForSelector('text=Evidence Library');
+  await verifyPageResponsiveness(adminPage, 'Evidence Library');
   await adminCtx.close();
 
 } finally {
@@ -101,5 +112,5 @@ try {
 }
 
 console.log('\n================================================================');
-console.log('  ALL ROLE VIEWS VERIFIED FOR ZERO OVERFLOW & ACCESSIBILITY!   ');
+console.log('  ALL TESTED ROLE VIEWS PASSED RESPONSIVE OVERFLOW CHECKS!   ');
 console.log('================================================================\n');

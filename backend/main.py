@@ -6,9 +6,14 @@ This Python API is loopback-only by default and requires an API key for non-heal
 import hmac
 import os
 import re
+import tempfile
+import subprocess
+from pathlib import Path
+from io import BytesIO
+from PIL import Image
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Security, Depends
+from fastapi import FastAPI, HTTPException, Security, Depends, UploadFile, File
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.middleware.cors import CORSMiddleware
 from models import AuditRequest, AuditResponse
@@ -52,6 +57,69 @@ app.add_middleware(
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "service": "VeriBrand AI optional Python verifier"}
+
+
+@app.post("/api/extract", dependencies=[Depends(require_api_key)])
+async def extract_evidence(file: UploadFile = File(...)):
+    allowed = {".pdf", ".txt", ".csv", ".md", ".png", ".jpg", ".jpeg", ".webp"}
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(status_code=415, detail="Unsupported evidence file type.")
+    data = await file.read(20 * 1024 * 1024 + 1)
+    if not data or len(data) > 20 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Evidence file must be between 1 byte and 20 MB.")
+    with tempfile.NamedTemporaryFile(prefix="vb-evidence-", suffix=suffix, delete=False) as handle:
+        temp_path = handle.name
+        handle.write(data)
+    try:
+        script = Path(__file__).resolve().parent / "scripts" / "extract_facts.py"
+        result = subprocess.run(["python", str(script), "--file", temp_path], capture_output=True, text=True, timeout=35, check=False)
+        if result.returncode != 0:
+            raise HTTPException(status_code=422, detail="Evidence extraction failed validation or could not read the document.")
+        import json
+        payload = json.loads(result.stdout)
+        if not payload.get("ok"):
+            raise HTTPException(status_code=422, detail="Evidence extraction did not complete successfully.")
+        return payload
+    except subprocess.TimeoutExpired as exc:
+        raise HTTPException(status_code=408, detail="Evidence extraction timed out.") from exc
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=502, detail="Extraction service returned invalid output.") from exc
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+
+
+@app.post("/api/vision/analyze", dependencies=[Depends(require_api_key)])
+async def analyze_visual_asset(file: UploadFile = File(...)):
+    data = await file.read(10 * 1024 * 1024 + 1)
+    if not data or len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Image must be between 1 byte and 10 MB.")
+    try:
+        with Image.open(BytesIO(data)) as source:
+            if source.format not in {"PNG", "JPEG", "WEBP"}:
+                raise HTTPException(status_code=415, detail="Only PNG, JPEG and WebP images are supported.")
+            width, height = source.size
+            if width < 1 or height < 1 or width * height > 40_000_000:
+                raise HTTPException(status_code=413, detail="Image dimensions exceed the 40-megapixel safety limit.")
+            image = source.convert("RGB")
+            image.thumbnail((1200, 1200))
+            quantized = image.quantize(colors=8, method=Image.Quantize.MEDIANCUT)
+            palette = quantized.getpalette() or []
+            counts = sorted(quantized.getcolors(maxcolors=1200 * 1200) or [], reverse=True)
+            dominant = []
+            for count, index in counts[:8]:
+                offset = index * 3
+                if offset + 2 < len(palette):
+                    rgb = palette[offset:offset + 3]
+                    dominant.append({"hex": "#%02X%02X%02X" % tuple(rgb), "pixelShare": round(count / (image.width * image.height), 4)})
+            return {"ok": True, "format": source.format.lower(), "width": width, "height": height, "aspectRatio": round(width / height, 4), "dominantColors": dominant, "analysisMethod": "pillow_pixel_quantization", "limitations": ["Dominant colors are sampled from image pixels and can include photography/background colors.", "Logo identity, typography, text/background contrast and semantic layout are not automatically verified."]}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail="The uploaded image is invalid or could not be decoded.") from exc
 
 
 @app.post("/api/audit", response_model=AuditResponse, dependencies=[Depends(require_api_key)])

@@ -1,12 +1,15 @@
 // VeriBrand AI — Audit Trail API Endpoint
 import { NextRequest, NextResponse } from 'next/server';
 import { getAuditTrail } from '@/lib/db/database';
-import { getSessionFromRequest, requireRole } from '@/lib/auth/session';
+import { getTenantContextFromRequest, requireTenantRole } from '@/lib/auth/session';
 
 export async function GET(req: NextRequest) {
   try {
-    const session = getSessionFromRequest(req);
-    const authCheck = requireRole(session?.user || null, ['reviewer', 'admin']);
+    const auth = getTenantContextFromRequest(req);
+    if (!auth.authorized || !auth.context) {
+      return NextResponse.json({ ok: false, error: auth.error || 'Authentication required.' }, { status: auth.status || 401 });
+    }
+    const authCheck = requireTenantRole(auth.context, ['reviewer', 'admin']);
     if (!authCheck.allowed) {
       return NextResponse.json({ ok: false, error: authCheck.error }, { status: authCheck.status });
     }
@@ -15,7 +18,7 @@ export async function GET(req: NextRequest) {
     const limitParam = searchParams.get('limit');
     const limit = limitParam ? Math.min(Math.max(parseInt(limitParam, 10) || 50, 1), 500) : 100;
 
-    const trail = getAuditTrail(limit);
+    const trail = getAuditTrail(limit, auth.context.organizationId);
 
     return NextResponse.json({
       ok: true,

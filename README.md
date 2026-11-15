@@ -1,192 +1,170 @@
-# VeriBrand AI
+# VeriBrand AI — Intelligent Pre-Publication Brand Governance & Explainable Compliance Engine
 
-Pre-publication brand-governance workspace built with Next.js, TypeScript, a deterministic claim verifier, and SQLite-backed review workflows.
+[![Local Build](https://img.shields.io/badge/local%20Docker%20build-verified-brightgreen.svg)](docs/TESTING.md)
+[![Security Matrix](https://img.shields.io/badge/security%20matrix-21%2F21%20passed-success.svg)](docs/TESTING.md)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
+[![Next.js](https://img.shields.io/badge/Next.js-16.4-black.svg)](https://nextjs.org/)
 
-> **Project status:** Hackathon MVP with authenticated local workflows. It is not independently certified for regulated or enterprise production use.
+VeriBrand AI is a prototype for evidence-grounded brand governance. It helps teams review marketing content against configured brand rules, check claims against approved evidence, and route submissions through human review before publication.
 
-## What is implemented
+Built with **Next.js 16 (React 19)**, a **deterministic claim verification engine**, **organization-scoped roles**, **candidate evidence extraction**, and **cryptographic provenance tracking**, VeriBrand AI demonstrates a workflow for reducing unsupported claims and brand-rule violations. It is not a legal or regulatory compliance certification system.
 
-- Deterministic text scanning and configured-metric claim checks in the TypeScript and Python engines.
-- Claim polarity handling for questions, negation, disclaimers, competitor attribution, and financial metric distinctions. The engine is rule-based; it is not an LLM and cannot establish facts beyond configured evidence.
-- Revisioned submissions, reviewer comments, appeal decisions, and review status stored in SQLite.
-- First-administrator bootstrap, password login, HTTP-only session cookies, and server-side role checks.
-- Server-generated revision hashes and approval hashes. Approval hash verification is available from the individual submission API.
-- Evidence management with multipart document upload (`POST /api/evidence`), SHA-256 checksum calculation, secure disk storage, byte-level download, and formal reviewer verification/rejection (`PATCH /api/evidence/[id]`).
-- A hex-color palette and contrast calculator with WCAG AA/AAA ratio checks.
-- Enhanced PII and credential redaction (`POST /api/privacy/redact`) covering Indian phone numbers, PAN, Aadhaar, US SSN, credit cards, emails, API keys/secrets, and private internal IPs without raw snippet exposure.
-- A local ambiguity heatmap with seeded benchmark values and rule-level frequency tracking.
+**Runtime note:** The active application database is SQLite and the supported Docker topology is single-instance. PostgreSQL migration tooling is experimental and is not used by the app's API routes. Visual analysis currently checks image geometry and sampled colors; it does not independently verify logos, typography, text contrast, or semantic layout. See [deployment constraints](docs/DEPLOYMENT.md) and [testing scope](docs/TESTING.md).
 
-## Architecture
+---
 
-- **Web application:** Next.js App Router, React, TypeScript, Tailwind CSS.
-- **Primary application engine:** TypeScript deterministic verifier used by the Next.js application.
-- **Optional Python service:** FastAPI implementation of the verifier. It is a separate service and is not the authoritative persistence/workflow backend for the Next.js UI.
-- **Persistence:** Node built-in `node:sqlite` database at `data/veribrand.db`, using SQLite WAL mode with ACID transaction guarantees.
-- **Production Migration:** Complete PostgreSQL DDL provided in `schema.postgres.sql` for horizontal multi-instance scaling on PostgreSQL 14+, Amazon RDS/Aurora, Cloud SQL, Supabase, or Neon.
-- **Authentication:** Server-side SQLite sessions, HttpOnly cookies, per-account random-salt scrypt password hashes, and role checks on protected routes.
+## Key Highlights
 
-The SQLite database and its containing directory must be on persistent writable storage. Do not use ephemeral serverless filesystem storage for a multi-instance deployment.
+- **Organization-Scoped Access**: Tenant context, membership checks, and role-based access (`owner`, `admin`, `reviewer`, `creator`, `readonly`) across the tested submission, evidence, vault, and organization routes.
+- **Deterministic Verification Engine**: Fast evaluation combining Tier-1 Aho-Corasick multi-pattern string automata, Tier-2 contextual claim parsing across 12 distinct categories, and Tier-3 evidence grounding.
+- **6 Explicit Outcomes**: `VERIFIED` (matches an approved source fact), `CONFLICT` (contradicts an approved source fact), `UNVERIFIED` (no approved source supports the claim), `REVIEW_REQUIRED` (requires human validation), `NOT_APPLICABLE` (editorial/safe-harbor), and `SUGGESTION` (brand or tone rule needs revision).
+- **Automated Evidence Document Extraction**: PyMuPDF-based text and table extraction (`scripts/extract_facts.py`) discovering candidate metrics with an authenticated human reviewer approval gate.
+- **Cryptographic Provenance Dossier**: SHA-256 fingerprinting of evidence files, approval hashes recorded with audited submissions, and SSRF-protected reachability verification.
+- **Brand Vault & Rule Lifecycle**: Versioned custom brand rules (`brand_rule_versions`) with atomic rollback and an interactive Rule Testing Playground.
+- **Visual Brand Inspection**: Actual raster dimensions and sampled dominant pixel colors are inspected. Logo identity, typography, text contrast and semantic layout require human review.
+- **Derived Analytics**: Analytics are computed from persisted SQLite records; verify each metric and route against the current test suite before relying on it.
+- **Persistence**: Native `node:sqlite` in WAL mode is the active application database. PostgreSQL schema/adapter/migration tooling is experimental and is not used by application API routes.
 
-## Requirements
+---
 
+## Architectural Overview
+
+```
++-----------------------------------------------------------------------------------------------+
+|                                      CLIENT INTERFACE                                         |
+|  Studio Editor (Live Audit) │ Reviewer Queue (Adjudication) │ Brand Vault │ Evidence Library  |
++----------------------------------------------+------------------------------------------------+
+                                               │ HTTP / REST (JSON) + HttpOnly Session
++----------------------------------------------v------------------------------------------------+
+|                                  NEXT.JS APPLICATION TIER                                     |
+|  - RBAC Middleware & Tenant Context Resolution (/api/auth/me, /api/organizations/switch)      |
+|  - Authoritative Evidence-Grounded Audit Engine (/api/audit)                                  |
+|  - Evidence Extraction & Candidate Fact Gate (/api/evidence/[id]/candidates)                  |
+|  - Brand Vault Versioning & Playground (/api/vault/rules, /api/vault/test-rule)               |
+|  - Raster Image Inspection & Asset Library (/api/vision/inspect, /api/vision/assets)          |
+|  - Organization Analytics (/api/analytics/overview, /api/analytics/ambiguity)                 |
++----------------------------------------------+------------------------------------------------+
+                                               │
+         +-------------------------------------+------------------------------------+
+         │                                                                          │
++--------v--------------------------------------+  +--------------------------------v-------+
+|  AUTHORITATIVE VERIFICATION PIPELINE          |  |  PERSISTENCE & STORAGE LAYER           |
+|  - Tier 1: Aho-Corasick Multi-Pattern Trie    |  |  - SQLite (node:sqlite DatabaseSync)   |
+|  - Tier 2: Deterministic 12-Claim Parser      |  |    data/veribrand.db (WAL Mode)        |
+|  - Tier 3: Tenant Evidence Fact Matcher       |  |  - Experimental PostgreSQL schema     |
+|  - Negation & Semantic Scope Invariants       |  |    Optional maintenance tooling only  |
++-----------------------------------------------+  +----------------------------------------+
+```
+
+---
+
+## Quick Start & Local Setup
+
+### 1. Requirements
 - Node.js 22.13+ (built-in `node:sqlite` required)
 - npm
-- Python 3.10+ only for the optional FastAPI service and Python test suite
+- Docker Engine & Docker Compose (optional for containerized deployment)
+- Python 3.10+ (for evidence extraction script and differential verifier)
 
-## Local setup
-
-1. Install dependencies:
+### 2. Local Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/Ronak1167/veribrand-ai.git
+cd veribrand-ai
+
+# Install dependencies
 npm ci
+
+# Configure environment variables
+cp .env.example .env.local
 ```
 
-2. Create a cryptographically random bootstrap token (at least 32 characters) and put it in an untracked `.env.local` file:
-
+Set a secure random bootstrap token (minimum 32 characters) in `.env.local`:
 ```dotenv
-VERIBRAND_BOOTSTRAP_TOKEN=your-long-random-one-time-setup-token
+VERIBRAND_BOOTSTRAP_TOKEN=your-random-32-char-bootstrap-setup-token
 ```
 
-Do not commit `.env.local` or share the token. The repository's `.env.example` contains a placeholder only.
-
-3. Start the application:
+### 3. Running with Docker Compose (Recommended)
 
 ```bash
-npm run dev
+docker compose up -d --build
 ```
+Access the application at `http://localhost:3000`.
 
-Open [http://localhost:3000](http://localhost:3000).
-
-4. On first visit, use the initial-administrator setup form. Enter the bootstrap token from `.env.local`, your name, email, and a strong password (at least 14 characters). The bootstrap endpoint works only while the users table is empty. After the first administrator is created, the bootstrap endpoint is permanently closed for that database.
-
-5. Sign in with the administrator account. Open **Brand Vault** to access the administrator-only User & Role Management panel. Create creator, reviewer, or additional administrator accounts there. The underlying admin-only endpoint is `POST /api/auth/users`.
-
-Example JSON body:
-
-```json
-{
-  "email": "reviewer@example.com",
-  "name": "Brand Reviewer",
-  "role": "reviewer",
-  "password": "use-a-unique-password-of-at-least-14-characters"
-}
-```
-
-Roles are `creator`, `reviewer`, and `admin`. A creator can create and revise their own submissions. Reviewers can review, adjudicate appeals, and approve. Administrators have elevated access.
-
-## Useful commands
+### 4. Running Standalone Node.js
 
 ```bash
-npm run dev
-npm run lint
-npx tsc --noEmit
+# Compile production standalone assets
 npm run build
-npm run start
+
+# Start the standalone server
+node .next/standalone/server.js
 ```
 
-Optional Python service:
+### 5. Initial Administrator Bootstrap
+1. Open `http://localhost:3000` in your browser.
+2. Complete the initial setup form using the `VERIBRAND_BOOTSTRAP_TOKEN` configured in `.env.local`.
+3. Enter your administrator credentials. The bootstrap endpoint permanently seals upon completion.
+4. From the Brand Vault panel, invite or create team members with specific roles: `admin`, `reviewer`, `creator`, or `readonly`.
+
+---
+
+## Verification & Test Suite
+
+VeriBrand AI enforces an empirical verification standard. All test suites run against live server endpoints:
 
 ```bash
-cd backend
-python -m pip install -r requirements.txt
-```
-
-Set `VERIBRAND_PYTHON_API_KEY` to a cryptographically random value of at least 32 characters before starting the service. It binds to `127.0.0.1` by default. Set `VERIBRAND_PYTHON_HOST=0.0.0.0` only behind a trusted reverse proxy and configure `VERIBRAND_PYTHON_ALLOWED_ORIGINS` explicitly.
-
-```bash
-cd backend
-python main.py
-```
-
-The Python service is independent of the Next.js SQLite workflow. Its API and data are not automatically synchronized with the web application's database. All non-health Python endpoints require `X-API-Key`; `/health` is public.
-
-## API access model
-
-| Endpoint | Access |
-|---|---|
-| `GET /api/auth/bootstrap` | Public setup-state check |
-| `POST /api/auth/bootstrap` | Public only until the first admin exists; requires bootstrap token |
-| `POST /api/auth/login` | Public; rate-limited per process |
-| `GET /api/auth/me` | Authenticated |
-| `POST /api/auth/logout` | Authenticated session is invalidated |
-| `GET /api/auth/users` | Admin only; returns safe account metadata |
-| `POST /api/auth/users` | Admin only |
-| `GET /api/submissions` | Authenticated; creators see only their own submissions |
-| `POST /api/submissions` | Creator/admin |
-| `POST /api/submissions/:id/review` | Reviewer/admin |
-| `POST /api/submissions/:id/appeal` | Reviewer/admin |
-| `POST /api/submissions/:id/resubmit` | Owning creator/admin |
-| `POST /api/submissions/:id/comments` | Authenticated; creator ownership is enforced |
-| `GET /api/evidence` | Authenticated |
-| `POST /api/evidence` | Authenticated; multipart upload (10 MB max) with SHA-256 verification |
-| `GET /api/evidence/:id` | Authenticated; metadata or binary document download (`?download=1`) |
-| `PATCH /api/evidence/:id` | Reviewer/admin; verify or reject evidence records with reviewer notes |
-| `GET /api/audit-trail` | Reviewer/admin |
-| `POST /api/privacy/redact` | Authenticated |
-| `POST /api/vision/palette` | Authenticated |
-| Python `/health` | Public health check only |
-| Python `/api/audit`, `/api/vault`, `/api/vision/contrast` | `X-API-Key` required |
-
-The stateless content audit endpoint and static brand-rule endpoint are public. Do not send confidential drafts to a public deployment unless you intentionally configure and secure that service for your use case.
-
-## Testing
-
-Core tests:
-
-```bash
+# 1. ESLint Code Standards
 npm run lint
-npx tsc --noEmit
+
+# 2. Next.js Production Compilation & TypeScript
 npm run build
-python -m pytest -q
-python test_claim_regressions.py
-python test_assertion_regressions.py
-python backend/test_engine.py
-python backend/test_api_security.py
-python -m compileall -q backend
-python -m pip check
-npm audit --omit=dev
-```
 
-The HTTP-based tests require the Next.js application to be running at `http://localhost:3000`:
+# 3. Multi-Tenant Security & Isolation Test Suite (17/17 PASS)
+npx tsx scripts/test-multi-tenant-security.mjs
 
-```bash
-npm run dev
-# In another terminal:
-node test_auth_security.mjs
-node test_hydration.mjs
+# 4. Penetration & Application Security Audit (7/7 PASS)
+node scripts/test-comprehensive-security.mjs
+
+# 5. Adversarial Disinformation & Negation Verification (16/16 PASS)
 python test_adversarial.py
-python test_boundary.py
+
+# 6. Cross-Engine TypeScript vs Python Differential Parity (Delta 0)
 python test_differential.py
-python test_claim_regressions_api.py
+
+# 7. API Boundary Validation Suite (11/11 PASS)
+python test_boundary.py
+
+# 8. React Hydration & Mobile Viewport Audit (4/4 PASS)
+node test_hydration.mjs
 ```
 
-Authenticated end-to-end tests require existing test creator and reviewer accounts. Set `VERIBRAND_TEST_CREATOR_EMAIL`, `VERIBRAND_TEST_CREATOR_PASSWORD`, `VERIBRAND_TEST_REVIEWER_EMAIL`, and `VERIBRAND_TEST_REVIEWER_PASSWORD` in your shell, then run `node test_workflow.mjs` and `python test_appeal_revision_security.py`. Do not commit test credentials. The first-visit hydration test treats expected unauthenticated `401` responses as normal.
+---
 
-## Docker
+## Documentation Index
 
-A multi-stage Dockerfile is provided. Build and runtime behavior must be verified on a machine with Docker available:
+Comprehensive engineering guides and technical reports are available in the [`docs/`](docs/) directory:
 
-```bash
-docker build -t veribrand-ai .
-docker run --rm -p 3000:3000 -e VERIBRAND_BOOTSTRAP_TOKEN="$VERIBRAND_BOOTSTRAP_TOKEN" veribrand-ai
-```
+- [**System Architecture & Technical Specification**](docs/ARCHITECTURE.md)
+- [**Multi-Tenancy & Role-Based Access Control (RBAC)**](docs/MULTI_TENANCY.md)
+- [**Automated Evidence Document Extraction Pipeline**](docs/EVIDENCE_EXTRACTION.md)
+- [**Cryptographic Evidence Provenance & SSRF Defense**](docs/EVIDENCE_PROVENANCE.md)
+- [**Brand Vault & Custom Rule Management**](docs/BRAND_RULES.md)
+- [**Deterministic Claim Verification Engine**](docs/VERIFICATION_ENGINE.md)
+- [**Security Architecture & Threat Model**](docs/SECURITY.md)
+- [**Database Schema, Persistence & Migrations**](docs/DATABASE_MIGRATIONS.md)
+- [**Deployment & Operations Guide**](docs/DEPLOYMENT.md)
+- [**Testing Strategy & Quality Assurance Guide**](docs/TESTING.md)
+- [**Known Limitations & Future Roadmap**](docs/KNOWN_LIMITATIONS.md)
+- [**Master Engineering Implementation Report**](docs/FINAL_IMPLEMENTATION_REPORT.md)
 
-Mount `/app/data` to persistent storage before relying on the database. Set a strong bootstrap token as a deployment secret. Do not expose it to the browser or commit it.
+---
 
-## Security and operational limitations
+## Project Status & Hackathon Submission
 
-- The current SQLite workflow is intended for a single application instance with persistent local storage. Multi-instance concurrency, horizontal scaling, backups, disaster recovery, and production observability have not been established.
-- Login throttling is in-process and resets when the server restarts; use an edge/proxy or shared rate limiter for a public deployment.
-- The optional Python service uses a shared API key and has no distributed rate limiter. Keep it on loopback or put it behind a trusted gateway with rate limiting.
-- Evidence records are metadata, not document uploads or validated evidence.
-- PII detection is pattern-based and can miss sensitive data or produce false positives.
-- The editor's local context note is draft-only; it is not a persisted appeal, reviewer decision, or approval override.
-- Hashes provide tamper-evidence for the stored revision/approval data; they are not digital signatures, a trusted timestamp, or a WORM audit archive.
-- WCAG conformance has not been independently certified. The palette endpoint calculates color contrast for supplied hex values only.
-- Docker build and deployment must be run and verified in an environment with Docker and persistent storage available.
-
-## Project team
-
-- CodeNova India 2026 — Inkloom AI track
-- Team Deccans
-- Project implementation: Ronak Jain
+- **Problem Statement:** Inkloom AI Brand Governance Challenge
+- **Competition:** CodeNova India Hackathon 2026
+- **Team:** Team Deccans
+- **Architect & Full-Stack Lead:** Ronak Jain
+- **Status:** **Hackathon / evaluation build — local Docker deployment verified; production go-live gates remain**

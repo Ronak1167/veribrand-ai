@@ -192,19 +192,19 @@ export const EditorView: React.FC<EditorViewProps> = ({
 
       {/* RIGHT COLUMN: Compliance Dashboard & Findings Sidebar */}
       <div className="lg:col-span-5 flex flex-col space-y-4 min-w-0">
-        {/* Compliance Score Gauge & Two-Tier Latency Benchmark */}
+        {/* Heuristic Risk Indicator & Two-Tier Latency Benchmark */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <span className="text-xs uppercase tracking-wider font-bold text-slate-500">
-                Compliance Health Score
+                Configured-rule risk indicator (heuristic)
               </span>
               <h3 className="text-lg font-extrabold text-slate-900">
-                {auditResult.complianceScore >= 90 && !auditResult.findings.some((f) => f.severity === 'critical' && f.verdict !== 'VERIFIED')
-                  ? 'Ready for Publication'
-                  : auditResult.complianceScore >= 70
-                  ? 'Revisions Recommended'
-                  : 'Critical Review Required'}
+                {auditResult.verificationStatus === 'BLOCKED'
+                  ? 'Publication blocked: unresolved findings'
+                  : auditResult.verificationStatus === 'REVIEW_REQUIRED'
+                  ? 'Human review required'
+                  : 'No configured issues detected'}
               </h3>
             </div>
             <div

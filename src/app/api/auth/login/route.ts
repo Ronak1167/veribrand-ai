@@ -26,7 +26,14 @@ export async function POST(req: NextRequest) {
   attempts.delete(key);
   const session = createSession(user!.id);
   logAuditEvent('LOGIN_SUCCESS', user!.id, user!.role, null, null, { method: 'password' }, ip);
-  const res = NextResponse.json({ ok: true, user: session.user, expiresAt: session.expiresAt });
+  const res = NextResponse.json({
+    ok: true,
+    user: session.user,
+    activeOrganizationId: session.activeOrganizationId,
+    activeRole: session.activeRole,
+    organizations: session.organizations,
+    expiresAt: session.expiresAt,
+  });
   res.cookies.set('veribrand_session', session.token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/', maxAge: 8 * 60 * 60 });
   return res;
 }

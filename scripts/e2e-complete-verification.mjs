@@ -177,7 +177,7 @@ if (subAfterChanges.status !== 'changes_requested') throw new Error(`Expected ch
 // -------------------------------------------------------------
 console.log('\n--- SECTION 4: RESUBMISSION & REVISION INCREMENT ---');
 
-const revisedText = 'Inkloom AI provides an audited 99.9% uptime SLA per Schedule B of Enterprise MSA v4.1 and SOC 2 Type II compliance.';
+const revisedText = 'Inkloom AI provides an audited 99.9% uptime SLA per Schedule B of Enterprise MSA v4.1 and SOC 2 Type II compliance, serving 50,000 enterprise customers worldwide.';
 const resubmitRes = await fetch(`${baseUrl}/api/submissions/${createdSub.id}/resubmit`, {
   method: 'POST',
   headers: { Cookie: creatorAuth.cookieHeader, 'Content-Type': 'application/json' },
@@ -196,17 +196,24 @@ console.log(`         Status reset to: ${resubmittedSub.status}`);
 // -------------------------------------------------------------
 console.log('\n--- SECTION 5: APPROVAL INTEGRITY & CRYPTOGRAPHIC HASH ---');
 
-const approveRes = await fetch(`${baseUrl}/api/submissions/${createdSub.id}/review`, {
+const standardApproveRes = await fetch(`${baseUrl}/api/submissions/${createdSub.id}/review`, {
   method: 'POST',
   headers: { Cookie: reviewerAuth.cookieHeader, 'Content-Type': 'application/json' },
   body: JSON.stringify({ action: 'approve' })
 });
+if (standardApproveRes.status !== 409) throw new Error(`Expected standard approval to be blocked by unsupported claims, got ${standardApproveRes.status}`);
+console.log('-> PASS: Standard approval is blocked while claims lack approved source evidence.');
+const approveRes = await fetch(`${baseUrl}/api/submissions/${createdSub.id}/review`, {
+  method: 'POST',
+  headers: { Cookie: reviewerAuth.cookieHeader, 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'approve', approvalMode: 'exception', exceptionRationale: 'Automated integration fixture: reviewer explicitly accepts the test claims for integrity workflow validation.' })
+});
 if (approveRes.status !== 200) {
   const err = await approveRes.json().catch(() => ({}));
-  throw new Error(`Approval failed: ${approveRes.status}: ${JSON.stringify(err)}`);
+  throw new Error(`Exception approval failed: ${approveRes.status}: ${JSON.stringify(err)}`);
 }
 const approveData = await approveRes.json();
-console.log(`-> PASS: Revision approved. Canonical SHA-256: ${approveData.submission.sha256Hash}`);
+console.log(`-> PASS: Documented exception approval committed. Canonical SHA-256: ${approveData.submission.sha256Hash}`);
 
 // Verify cryptographic non-repudiation
 const finalSub = await (await fetch(`${baseUrl}/api/submissions/${createdSub.id}`, { headers: { Cookie: reviewerAuth.cookieHeader } })).json();
@@ -290,7 +297,7 @@ console.log('-> PASS: Evidence downloaded with matching byte integrity');
 const verifyEvidRes = await fetch(`${baseUrl}/api/evidence/${uploadedEvid.id}`, {
   method: 'PATCH',
   headers: { Cookie: reviewerAuth.cookieHeader, 'Content-Type': 'application/json' },
-  body: JSON.stringify({ status: 'verified', notes: 'Verified against signed A-LIGN attestation document.' })
+  body: JSON.stringify({ status: 'verified', approvedValue: 'SOC 2 Type II', notes: 'Reviewer transcribed the approved certification from the test fixture.' })
 });
 if (verifyEvidRes.status !== 200) throw new Error(`Evidence review failed: ${verifyEvidRes.status}`);
 const { evidence: verifiedEvid } = await verifyEvidRes.json();
