@@ -27,12 +27,13 @@ const TABLES_IN_RESTORE_ORDER = [
   'brand_assets',
 ];
 
-export async function restorePostgres(backupFilePath) {
+export async function restorePostgres(backupFilePath, targetDatabaseUrl = null) {
+  const targetUrl = targetDatabaseUrl || databaseUrl;
   console.log('='.repeat(70));
   console.log('  VERIBRAND AI — POSTGRESQL RESTORE & DISASTER RECOVERY');
   console.log('='.repeat(70));
   console.log(`Source File:  ${backupFilePath}`);
-  console.log(`Target Database: ${databaseUrl.replace(/:[^:@]+@/, ':****@')}`);
+  console.log(`Target Database: ${targetUrl.replace(/:[^:@]+@/, ':****@')}`);
 
   if (!fs.existsSync(backupFilePath)) {
     throw new Error(`Backup file does not exist: ${backupFilePath}`);
@@ -61,7 +62,7 @@ export async function restorePostgres(backupFilePath) {
       throw new Error(`Invalid or unsupported table in backup: ${table}`);
     }
   }
-  const pool = new Pool({ connectionString: databaseUrl });
+  const pool = new Pool({ connectionString: targetUrl });
   const client = await pool.connect();
 
   try {

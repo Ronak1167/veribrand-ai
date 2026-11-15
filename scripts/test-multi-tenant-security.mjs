@@ -537,31 +537,45 @@ if (await runAsyncTest('15. HTTP Provenance URL SSRF protection (Blocks 127.0.0.
   }
 })) passed++;
 
-// TEST 16: Visual Brand Compliance Inspection API
+// TEST 16: Visual Brand Compliance Inspection API (Multipart Upload & Metadata-Only Rejection)
 total++;
 if (await runAsyncTest('16. HTTP Visual Brand Compliance Inspection (Aspect ratio, dimensions, contrast)', async () => {
-  const res = await fetch(`${BASE_URL}/api/vision/inspect`, {
+  // A. Metadata-only JSON must be rejected with HTTP 415
+  const jsonRejectRes = await fetch(`${BASE_URL}/api/vision/inspect`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Cookie': creatorSession.cookie,
     },
-    body: JSON.stringify({
-      assetType: 'marketing_image',
-      width: 1200,
-      height: 630,
-      colors: ['#4F46E5', '#0F172A', '#FF0033'],
-      background: '#FFFFFF',
-    }),
+    body: JSON.stringify({ assetType: 'marketing_image', width: 1200, height: 630 }),
+  });
+  assert.equal(jsonRejectRes.status, 415, 'Metadata-only JSON must be rejected with 415');
+
+  // B. Real image upload via multipart/form-data must be accepted (200 OK)
+  const testImagePath = path.resolve('docs', 'screenshots', '01-login-desktop.png');
+  const imageBuffer = fs.existsSync(testImagePath)
+    ? fs.readFileSync(testImagePath)
+    : Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+
+  const formData = new FormData();
+  formData.append('file', new Blob([imageBuffer], { type: 'image/png' }), 'test-banner.png');
+  formData.append('assetType', 'marketing_image');
+
+  const res = await fetch(`${BASE_URL}/api/vision/inspect`, {
+    method: 'POST',
+    headers: {
+      'Cookie': creatorSession.cookie,
+    },
+    body: formData,
   });
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.ok, true);
   assert.ok(Array.isArray(data.findings));
-  assert.equal(data.computedAspectRatio, '1.90:1');
-  const forbiddenFinding = data.findings.find(f => f.category === 'forbidden_colors');
-  assert.ok(forbiddenFinding, 'Inspection must detect forbidden hex code #FF0033');
-  assert.equal(forbiddenFinding.passed, false);
+  assert.ok(typeof data.width === 'number' && data.width > 0);
+  assert.ok(typeof data.height === 'number' && data.height > 0);
+  assert.ok(typeof data.computedAspectRatio === 'string');
+  assert.equal(data.requiresHumanReview, true);
 })) passed++;
 
 // TEST 17: Organization Analytics API

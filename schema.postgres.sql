@@ -1,5 +1,5 @@
 -- ==============================================================================
--- VeriBrand AI — Production PostgreSQL Schema Definition
+-- VeriBrand AI — Production PostgreSQL Schema (Migration 001)
 -- Multi-Tenant Brand Governance Platform with Evidence Extraction,
 -- Provenance Verification, Brand Vault Lifecycle & Visual Compliance
 -- ==============================================================================
@@ -14,9 +14,12 @@ CREATE TABLE IF NOT EXISTS organizations (
     id VARCHAR(64) PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
     slug VARCHAR(255) NOT NULL UNIQUE,
+    logo_url TEXT,
+    brand_name VARCHAR(255) DEFAULT 'Inkloom AI & VeriBrand AI',
+    settings_json JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    created_by VARCHAR(64) NOT NULL
+    created_by VARCHAR(64)
 );
 
 CREATE INDEX IF NOT EXISTS idx_organizations_slug ON organizations(slug);
@@ -45,10 +48,11 @@ CREATE TABLE IF NOT EXISTS organization_memberships (
     organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     role VARCHAR(32) NOT NULL CHECK(role IN ('owner', 'admin', 'reviewer', 'creator', 'readonly')),
-    joined_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uidx_org_user_membership UNIQUE (organization_id, user_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS uidx_org_user_membership ON organization_memberships(organization_id, user_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_user ON organization_memberships(user_id);
 CREATE INDEX IF NOT EXISTS idx_memberships_org ON organization_memberships(organization_id);
 
@@ -62,9 +66,9 @@ CREATE TABLE IF NOT EXISTS organization_invitations (
     role VARCHAR(32) NOT NULL CHECK(role IN ('owner', 'admin', 'reviewer', 'creator', 'readonly')),
     token VARCHAR(128) NOT NULL UNIQUE,
     invited_by VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TIMESTAMPTZ NOT NULL,
     status VARCHAR(32) NOT NULL CHECK(status IN ('pending', 'accepted', 'revoked', 'expired')),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMPTZ NOT NULL
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_invitations_org ON organization_invitations(organization_id);
@@ -74,7 +78,7 @@ CREATE INDEX IF NOT EXISTS idx_invitations_token ON organization_invitations(tok
 -- 5. SESSIONS TABLE
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS sessions (
-    token_hash CHAR(64) PRIMARY KEY,
+    token VARCHAR(128) PRIMARY KEY,
     user_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     active_organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE SET NULL,
     expires_at TIMESTAMPTZ NOT NULL,
@@ -89,7 +93,7 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS submissions (
     id VARCHAR(64) PRIMARY KEY,
-    organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     title VARCHAR(255) NOT NULL,
     channel VARCHAR(64) NOT NULL,
     creator_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
@@ -102,7 +106,7 @@ CREATE TABLE IF NOT EXISTS submissions (
     sha256_hash VARCHAR(64),
     signed_off_at TIMESTAMPTZ,
     signed_off_by VARCHAR(255),
-    approval_mode VARCHAR(32) CHECK(approval_mode IN ('standard', 'exception')),
+    approval_mode VARCHAR(32),
     exception_rationale TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -124,11 +128,11 @@ CREATE TABLE IF NOT EXISTS submission_revisions (
     audit_result_json JSONB NOT NULL,
     sha256_hash VARCHAR(64) NOT NULL,
     submitted_by VARCHAR(255) NOT NULL,
-    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uidx_revisions_sub_version UNIQUE (submission_id, version)
 );
 
 CREATE INDEX IF NOT EXISTS idx_revisions_submission_id ON submission_revisions(submission_id);
-CREATE UNIQUE INDEX IF NOT EXISTS uidx_revisions_sub_version ON submission_revisions(submission_id, version);
 
 -- ------------------------------------------------------------------------------
 -- 8. APPEAL DECISIONS TABLE
@@ -143,11 +147,10 @@ CREATE TABLE IF NOT EXISTS appeal_decisions (
     rationale TEXT NOT NULL,
     reviewer_id VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
     reviewer_name VARCHAR(255) NOT NULL,
-    decided_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    decided_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uidx_appeal_decisions_rev_finding UNIQUE (submission_id, revision_id, finding_id)
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS appeal_decisions_revision_finding_unique 
-    ON appeal_decisions(submission_id, revision_id, finding_id);
 CREATE INDEX IF NOT EXISTS idx_appeal_decisions_sub_id ON appeal_decisions(submission_id);
 
 -- ------------------------------------------------------------------------------
@@ -170,6 +173,7 @@ CREATE INDEX IF NOT EXISTS idx_comments_submission_id ON comments(submission_id)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_trail (
     id BIGSERIAL PRIMARY KEY,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE SET NULL,
     event_type VARCHAR(64) NOT NULL,
     actor_id VARCHAR(64) NOT NULL,
     actor_role VARCHAR(32) NOT NULL,
@@ -182,37 +186,37 @@ CREATE TABLE IF NOT EXISTS audit_trail (
 
 CREATE INDEX IF NOT EXISTS idx_audit_trail_actor ON audit_trail(actor_id);
 CREATE INDEX IF NOT EXISTS idx_audit_trail_sub_id ON audit_trail(submission_id);
+CREATE INDEX IF NOT EXISTS idx_audit_trail_org_id ON audit_trail(organization_id);
 CREATE INDEX IF NOT EXISTS idx_audit_trail_timestamp ON audit_trail(timestamp DESC);
 
 -- ------------------------------------------------------------------------------
 -- 11. EVIDENCE DOCUMENTS TABLE (PROVENANCE & INTEGRITY)
--- Provenance states: uploaded, extracted, pending, verified, rejected, superseded, expired
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS evidence_documents (
     id VARCHAR(64) PRIMARY KEY,
-    organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
     metric_id VARCHAR(64) NOT NULL,
-    submission_id VARCHAR(64) REFERENCES submissions(id) ON DELETE SET NULL,
-    revision_id VARCHAR(64) REFERENCES submission_revisions(id) ON DELETE SET NULL,
     document_name VARCHAR(255) NOT NULL,
-    original_filename VARCHAR(255),
-    uploader_user_id VARCHAR(64),
     section_citation VARCHAR(255) NOT NULL,
     mime_type VARCHAR(128) NOT NULL,
     file_size_bytes BIGINT NOT NULL,
     sha256_checksum VARCHAR(64) NOT NULL,
-    status VARCHAR(32) NOT NULL CHECK(status IN ('uploaded', 'extracted', 'pending', 'verified', 'rejected', 'superseded', 'expired')),
-    provenance_state VARCHAR(32) NOT NULL DEFAULT 'uploaded',
-    storage_path TEXT,
-    source_url TEXT,
-    url_verified_at TIMESTAMPTZ,
-    url_domain VARCHAR(255),
-    url_reachable BOOLEAN,
+    status VARCHAR(32) NOT NULL,
     uploaded_by VARCHAR(64) NOT NULL,
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    storage_path TEXT,
     reviewed_by VARCHAR(64),
     review_notes TEXT,
-    reviewed_at TIMESTAMPTZ
+    reviewed_at TIMESTAMPTZ,
+    submission_id VARCHAR(64) REFERENCES submissions(id) ON DELETE SET NULL,
+    revision_id VARCHAR(64) REFERENCES submission_revisions(id) ON DELETE SET NULL,
+    approved_value TEXT,
+    valid_from TIMESTAMPTZ,
+    valid_until TIMESTAMPTZ,
+    provenance_state VARCHAR(32) DEFAULT 'uploaded',
+    source_url TEXT,
+    source_publisher VARCHAR(255),
+    verification_method VARCHAR(64) DEFAULT 'manual_inspection'
 );
 
 CREATE INDEX IF NOT EXISTS idx_evidence_org ON evidence_documents(organization_id);
@@ -225,46 +229,51 @@ CREATE INDEX IF NOT EXISTS idx_evidence_status ON evidence_documents(status);
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS evidence_candidate_facts (
     id VARCHAR(64) PRIMARY KEY,
-    evidence_id VARCHAR(64) NOT NULL REFERENCES evidence_documents(id) ON DELETE CASCADE,
     organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-    claim_text TEXT NOT NULL,
-    metric_type VARCHAR(64) NOT NULL,
-    extracted_value NUMERIC,
+    evidence_id VARCHAR(64) NOT NULL REFERENCES evidence_documents(id) ON DELETE CASCADE,
+    metric_id VARCHAR(64),
+    claim_type VARCHAR(64) NOT NULL,
+    extracted_claim TEXT NOT NULL,
+    extracted_value TEXT NOT NULL,
     unit VARCHAR(64),
-    time_period VARCHAR(128),
-    context_excerpt TEXT,
     page_number INTEGER,
-    confidence_score NUMERIC(4, 3) NOT NULL,
-    review_status VARCHAR(32) NOT NULL DEFAULT 'pending' CHECK(review_status IN ('pending', 'approved', 'rejected')),
+    text_excerpt TEXT NOT NULL,
+    confidence NUMERIC(4, 3) DEFAULT 1.0,
+    extraction_method VARCHAR(64) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'unverified' CHECK(status IN ('unverified', 'approved', 'rejected')),
     reviewed_by VARCHAR(64) REFERENCES users(id) ON DELETE SET NULL,
     reviewed_at TIMESTAMPTZ,
     review_notes TEXT,
+    valid_from TIMESTAMPTZ,
+    valid_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_candidate_facts_evidence ON evidence_candidate_facts(evidence_id);
 CREATE INDEX IF NOT EXISTS idx_candidate_facts_org ON evidence_candidate_facts(organization_id);
-CREATE INDEX IF NOT EXISTS idx_candidate_facts_status ON evidence_candidate_facts(review_status);
+CREATE INDEX IF NOT EXISTS idx_candidate_facts_status ON evidence_candidate_facts(status);
 
 -- ------------------------------------------------------------------------------
 -- 13. BRAND RULES TABLE (CUSTOM VAULT RULES)
 -- ------------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS brand_rules (
     id VARCHAR(64) PRIMARY KEY,
-    organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+    organization_id VARCHAR(64) REFERENCES organizations(id) ON DELETE CASCADE,
+    category VARCHAR(64) NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
-    category VARCHAR(64) NOT NULL,
-    severity VARCHAR(32) NOT NULL CHECK(severity IN ('error', 'warning', 'info')),
     authority_level INTEGER NOT NULL DEFAULT 2,
+    severity VARCHAR(32) NOT NULL CHECK(severity IN ('error', 'warning', 'info')),
     forbidden_patterns_json JSONB NOT NULL,
-    approved_alternative TEXT,
-    citation TEXT,
+    approved_alternative TEXT NOT NULL,
+    citation TEXT NOT NULL,
+    created_by VARCHAR(64) NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     active BOOLEAN NOT NULL DEFAULT TRUE,
     version INTEGER NOT NULL DEFAULT 1,
     status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK(status IN ('draft', 'active', 'inactive', 'archived')),
-    created_by VARCHAR(64) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    effective_from TIMESTAMPTZ,
+    effective_until TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -279,17 +288,17 @@ CREATE TABLE IF NOT EXISTS brand_rule_versions (
     rule_id VARCHAR(64) NOT NULL REFERENCES brand_rules(id) ON DELETE CASCADE,
     organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     version INTEGER NOT NULL,
+    category VARCHAR(64) NOT NULL,
     title VARCHAR(255) NOT NULL,
     description TEXT NOT NULL,
-    forbidden_patterns_json JSONB NOT NULL,
-    approved_alternative TEXT,
-    citation TEXT,
-    category VARCHAR(64) NOT NULL,
-    severity VARCHAR(32) NOT NULL,
     authority_level INTEGER NOT NULL,
+    severity VARCHAR(32) NOT NULL,
+    forbidden_patterns_json JSONB NOT NULL,
+    approved_alternative TEXT NOT NULL,
+    citation TEXT NOT NULL,
     status VARCHAR(32) NOT NULL,
-    changed_by VARCHAR(64) NOT NULL,
-    change_summary TEXT,
+    change_rationale TEXT,
+    created_by VARCHAR(64) NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -303,20 +312,17 @@ CREATE TABLE IF NOT EXISTS brand_assets (
     id VARCHAR(64) PRIMARY KEY,
     organization_id VARCHAR(64) NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     name VARCHAR(255) NOT NULL,
-    asset_type VARCHAR(64) NOT NULL CHECK(asset_type IN ('logo', 'marketing_image', 'banner', 'palette_swatch', 'font')),
-    file_name VARCHAR(255) NOT NULL,
+    asset_type VARCHAR(64) NOT NULL CHECK(asset_type IN ('logo_primary', 'logo_secondary', 'logo_monochrome', 'logo_icon', 'palette_swatch', 'marketing_image', 'font')),
+    storage_path TEXT NOT NULL,
     mime_type VARCHAR(128) NOT NULL,
     file_size_bytes BIGINT NOT NULL,
-    sha256_hash VARCHAR(64) NOT NULL,
-    storage_path TEXT NOT NULL,
-    width_px INTEGER,
-    height_px INTEGER,
+    sha256_checksum VARCHAR(64) NOT NULL,
+    width INTEGER,
+    height INTEGER,
     aspect_ratio VARCHAR(32),
-    primary_color_hex VARCHAR(16),
-    palette_colors_json JSONB,
-    status VARCHAR(32) NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'archived')),
+    metadata_json JSONB DEFAULT '{}',
     uploaded_by VARCHAR(64) NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
-    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_brand_assets_org ON brand_assets(organization_id);

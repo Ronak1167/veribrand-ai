@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { Pool } from 'pg';
 import path from 'path';
+import fs from 'fs';
 import { backupPostgres } from './backup-postgres.mjs';
 import { restorePostgres } from './restore-postgres.mjs';
 
@@ -55,17 +56,32 @@ async function runDrill() {
     assert.ok(backupResult.backupFilePath, 'Backup file path must exist');
     assert.ok(backupResult.checksum, 'Backup SHA-256 checksum must exist');
 
-    // 3. Execute Automated Restore Drill
-    console.log('\n[Phase 3] Executing Automated Restore from Verified Archive...');
-    const restoreResult = await restorePostgres(backupResult.backupFilePath);
+    // 3. Execute Automated Restore Drill in Dedicated Isolated Target Database
+    console.log('\n[Phase 3] Setting Up Fresh Isolated Target Database for Restore Drill...');
+    const drillDbName = 'veribrand_drill_restore';
+    const parsedUrl = new URL(databaseUrl);
+    parsedUrl.pathname = '/postgres';
+    const adminPool = new Pool({ connectionString: parsedUrl.toString() });
+    await adminPool.query(`DROP DATABASE IF EXISTS ${drillDbName};`);
+    await adminPool.query(`CREATE DATABASE ${drillDbName};`);
+    await adminPool.end();
+
+    const drillDbUrl = new URL(databaseUrl);
+    drillDbUrl.pathname = `/${drillDbName}`;
+    const drillPool = new Pool({ connectionString: drillDbUrl.toString() });
+    const schemaSql = fs.readFileSync(path.resolve(process.cwd(), 'schema.postgres.sql'), 'utf8');
+    await drillPool.query(schemaSql);
+
+    console.log('\nExecuting Automated Restore into Isolated Drill Database...');
+    const restoreResult = await restorePostgres(backupResult.backupFilePath, drillDbUrl.toString());
     assert.ok(restoreResult.success, 'Restore execution must succeed');
 
     // 4. Verify Post-Restore Table Parity
-    console.log('\n[Phase 4] Verifying 100% Record Count Parity Post-Restore...');
+    console.log('\n[Phase 4] Verifying 100% Record Count Parity in Restored Target...');
     let allMatched = true;
 
     for (const table of TABLES) {
-      const res = await client.query(`SELECT COUNT(*) as count FROM ${table}`);
+      const res = await drillPool.query(`SELECT COUNT(*) as count FROM ${table}`);
       const restoredCount = parseInt(res.rows[0].count, 10);
       const expectedCount = baselineCounts[table];
 
@@ -75,6 +91,13 @@ async function runDrill() {
       const sym = match ? '✓ PASS' : '✗ FAIL';
       console.log(`  ${sym} ${table.padEnd(28)} Expected: ${expectedCount.toString().padStart(5)} | Actual: ${restoredCount.toString().padStart(5)}`);
     }
+
+    await drillPool.end();
+
+    // Clean up isolated test database after successful parity verification
+    const cleanupPool = new Pool({ connectionString: parsedUrl.toString() });
+    await cleanupPool.query(`DROP DATABASE IF EXISTS ${drillDbName};`);
+    await cleanupPool.end();
 
     console.log('\n' + '='.repeat(75));
     if (allMatched) {
